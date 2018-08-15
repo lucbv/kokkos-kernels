@@ -2741,16 +2741,16 @@ public:
           // Check that the color is in the current range
           if(neighColor > colorOffset && neighColor < colorOffset + 65) {
             // Set bannedColors' bit in location colors(adj_(neigh)) to 1.
-            bannedColors |= (1ULL << (neighColor - 1));
+            bannedColors |= (1ULL << (neighColor - colorOffset - 1));
           }
 
           // We want to avoid the cost of atomic operations when not needed
           // so let's check that the node is not already colored, i.e.
           // its dependency is not -1.
           if(colorOffset == 0 && dependency_(adj_(neigh)) >= 0) {
-            nnz_lno_t myDependency =
+            nnz_lno_t neighDependency =
               Kokkos::atomic_fetch_add(&dependency_(adj_(neigh)), -1);
-            if(myDependency - 1 == 0) {
+            if(neighDependency - 1 == 0) {
               const size_type newFrontierIdx
                 = Kokkos::atomic_fetch_add(&newFrontierSize_(), 1);
               newFrontier_(newFrontierIdx) = adj_(neigh);
