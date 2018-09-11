@@ -2777,6 +2777,195 @@ public:
 };  // class GraphColor_VBD
 
 
+/*! \brief Class for the deterministic vertex based graph coloring algorithms using partitioning.
+ */
+template <typename HandleType, typename lno_row_view_t_, typename lno_nnz_view_t_>
+class GraphColor_VBDP : public GraphColor <HandleType, lno_row_view_t_, lno_nnz_view_t_> {
+
+public:
+
+  typedef long long int ban_type;
+
+  typedef lno_row_view_t_ in_lno_row_view_t;
+  typedef lno_nnz_view_t_ in_lno_nnz_view_t;
+  typedef typename HandleType::color_view_t color_view_type;
+
+
+  typedef typename HandleType::size_type size_type;
+  typedef typename lno_row_view_t_::device_type row_lno_view_device_t;
+
+  typedef typename HandleType::nnz_lno_t nnz_lno_t;
+
+  typedef typename HandleType::color_t color_t;
+  typedef typename HandleType::color_host_view_t color_host_view_t; //Host view type
+
+  typedef typename HandleType::HandleExecSpace MyExecSpace;
+  typedef typename HandleType::HandleTempMemorySpace MyTempMemorySpace;
+  typedef typename HandleType::HandlePersistentMemorySpace MyPersistentMemorySpace;
+
+  typedef typename Kokkos::View<nnz_lno_t, row_lno_view_device_t> single_dim_index_view_type;
+  typedef typename single_dim_index_view_type::HostMirror single_dim_index_host_view_type; //Host view type
+
+  typedef Kokkos::RangePolicy<MyExecSpace> my_exec_space;
+
+  typedef typename HandleType::size_type_temp_work_view_t size_type_temp_work_view_t;
+  typedef typename HandleType::size_type_persistent_work_view_t size_type_persistent_work_view_t;
+
+
+  typedef typename HandleType::nnz_lno_temp_work_view_t nnz_lno_temp_work_view_t;
+  typedef typename HandleType::nnz_lno_persistent_work_view_t nnz_lno_persistent_work_view_t;
+
+
+
+  typedef typename in_lno_row_view_t::const_type const_lno_row_view_t;
+
+
+  typedef typename lno_nnz_view_t_::const_type const_lno_nnz_view_t;
+  typedef typename lno_nnz_view_t_::non_const_type non_const_lno_nnz_view_t;
+
+
+protected:
+
+
+
+  bool _ticToc; //if true print info in each step
+
+
+
+public:
+  /**
+   * \brief GraphColor_VBDP constructor.
+   * \param nv_: number of vertices in the graph
+   * \param ne_: number of edges in the graph
+   * \param row_map: the xadj array of the graph. Its size is nv_ +1
+   * \param entries: adjacency array of the graph. Its size is ne_
+   * \param coloring_handle: GraphColoringHandle object that holds the specification about the graph coloring,
+   *    including parameters.
+   */
+  GraphColor_VBDP(
+      nnz_lno_t nv_, size_type ne_,
+      const_lno_row_view_t row_map, const_lno_nnz_view_t entries,
+      HandleType *coloring_handle):
+    GraphColor<HandleType,lno_row_view_t_,lno_nnz_view_t_>(nv_, ne_, row_map, entries, coloring_handle),
+    _ticToc(coloring_handle->get_tictoc())
+    { }
+
+  /** \brief GraphColor_VBDP destructor.
+    */
+  virtual ~GraphColor_VBDP(){}
+
+  /** \brief Function to color the vertices of the graphs. Performs a vertex-based coloring.
+   * \param colors is the output array recording the color of each vertex. Size is this->nv.
+   *   Attn: Color array must contain only positive numbers. If there are no initial colors,
+   *   it should be all initialized with zeros. Any strictly positive value in the color array,
+   *   will make the algorithm assume that the corresponding vertex is already .
+   * \param num_loops: The number of loops in the while statement required to color the graph.
+   */
+  virtual void color_graph(color_view_type colors, int &num_loops) {
+    nnz_lno_t partition_size = 0;
+
+    size_type maxDegree = 0;
+    typedef typename Kokkos::Experimental::Max<size_type, MyExecSpace> maxDegreeReducerType;
+    maxDegreeReducerType maxDegreeReducer(maxDegree);
+    functorMaxDegree<size_type, MyExecSpace> computeMaxDegree(this->xadj);
+    Kokkos::parallel_reduce("Subdomain Coloring: compute max degree", my_exec_space(0,this->nv),
+                            computeMaxDegree, maxDegreeReducer);
+
+    std::cout << "maxDegree=" << maxDegree << std::endl;
+
+    size_type numConflicts = 0;
+    subdomainColoringFunctor mySubdomainColoring(this->nv, MyExecSpace::concurrency(), this->xadj,
+                                                 this->adj, maxDegree, colors, numConflicts);
+
+    Kokkos::RangePolicy<MyExecSpace> myRangePolicy(0, MyExecSpace::concurrency());
+    Kokkos::parallel_reduce("Subdomain Coloring: incomplete coloring", myRangePolicy,
+                            mySubdomainColoring, numConflicts);
+    std::cout << "numConflict=" << numConflicts << std::endl;
+  } // color_graph
+
+
+  template <class max_type, class execution_space>
+  struct functorMaxDegree {
+    typedef typename Kokkos::Experimental::Max<max_type, execution_space>::value_type valueType;
+    const_lno_row_view_t numNeighbors_;
+
+    functorMaxDegree(const_lno_row_view_t numNeighbors) : numNeighbors_(numNeighbors) {}
+
+    KOKKOS_INLINE_FUNCTION
+    void operator() (const int i, valueType &update) const {
+      valueType myDegree = numNeighbors_(i + 1) - numNeighbors_(i);
+      update = ( myDegree < update ? update : myDegree );
+    }
+  }; // functorMaxDegree()
+
+  struct subdomainColoringFunctor {
+    nnz_lno_t numVertices_, numSubdomains_;
+    const_lno_row_view_t xadj_;
+    const_lno_nnz_view_t adj_;
+    color_t maxNumColors_;
+    color_view_type colors_;
+    size_type numConflicts_;
+
+    subdomainColoringFunctor(nnz_lno_t numVertices, nnz_lno_t numSubdomains,
+                             const_lno_row_view_t xadj, const_lno_nnz_view_t adj,
+                             color_t maxNumColors, color_view_type colors, size_type numConflicts)
+      : numVertices_(numVertices), numSubdomains_(numSubdomains), xadj_(xadj), adj_(adj),
+        maxNumColors_(maxNumColors), colors_(colors), numConflicts_(numConflicts) {}
+
+    KOKKOS_INLINE_FUNCTION
+    void operator() (const int domainIdx, size_type& update) const {
+      // Define the local domain to be operated on.
+      nnz_lno_t numDomainNodes = numVertices_ / numSubdomains_;
+      nnz_lno_t extraNodes = numVertices_ % numSubdomains_;
+      nnz_lno_t startDomainIdx = domainIdx*numDomainNodes;
+      nnz_lno_t endDomainIdx = (domainIdx + 1)*numDomainNodes;
+      if(domainIdx < extraNodes) {
+        ++numDomainNodes;
+        startDomainIdx += domainIdx;
+        endDomainIdx += (domainIdx + 1);
+      } else {
+        startDomainIdx += extraNodes;
+        endDomainIdx += extraNodes;
+      }
+
+      // Perform a serial coloring of the local domain's interior nodes.
+      int isNodeInterior;
+      color_t* bannedColors = new color_t[maxNumColors_];
+      for(nnz_lno_t nodeIdx = startDomainIdx; nodeIdx < endDomainIdx; ++nodeIdx) {
+        isNodeInterior = 1;
+        for(color_t color = 0; color < maxNumColors_; ++color) {bannedColors[color] = 0;}
+
+        // Loop over nodeIdx's neighbors
+        for(size_type neigh = xadj_[nodeIdx]; neigh < xadj_[nodeIdx + 1]; ++neigh) {
+          nnz_lno_t neighIdx = adj_[neigh];
+          if(neighIdx < startDomainIdx) {
+            // The neighIdx is not in the local subdomain range so nodeIdx is not interior
+            isNodeInterior = 0;
+            ++update;
+            break;
+          } else {
+            bannedColors[colors_[neighIdx]] = 1;
+          }
+        } // Loop over neighbors
+
+        // If node is interior, select its color
+        if(isNodeInterior == 1) {
+          for(color_t myColor = 1; myColor < maxNumColors_; ++myColor) {
+            if(bannedColors[myColor] == 0) {
+              colors_[nodeIdx] = myColor;
+              break;
+            }
+          }
+        }
+
+      } // Loop over local domain's interior nodes
+      delete [] bannedColors;
+    }
+  }; // testFunctor
+
+}; // Class GraphColor_VBDP
+
+
 /*! \brief Class for modular parallel graph coloring using Kokkos.
  *  Performs a edge_base coloring, with the hope of better load balance
  *  as well as better memory accesses on GPUs.

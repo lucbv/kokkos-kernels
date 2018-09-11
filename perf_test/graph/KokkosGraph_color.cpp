@@ -121,6 +121,9 @@ int parse_inputs (KokkosKernels::Experiment::Parameters &params, int argc, char 
       else if ( 0 == strcasecmp( argv[i] , "COLORING_VBDBIT" ) ) {
         params.algorithm = 8;
       }
+      else if ( 0 == strcasecmp( argv[i] , "COLORING_VBDP" ) ) {
+        params.algorithm = 9;
+      }
       else {
         std::cerr << "2-Unrecognized command line argument #" << i << ": " << argv[i] << std::endl ;
         print_options();
@@ -194,23 +197,24 @@ void run_experiment(
     switch (algorithm){
     case 1:
       kh.create_graph_coloring_handle(COLORING_DEFAULT);
-
       break;
+
     case 2:
       kh.create_graph_coloring_handle(COLORING_SERIAL);
-
       break;
+
     case 3:
       kh.create_graph_coloring_handle(COLORING_VB);
       break;
+
     case 4:
       kh.create_graph_coloring_handle(COLORING_VBBIT);
-
       break;
+
     case 5:
       kh.create_graph_coloring_handle(COLORING_VBCS);
-
       break;
+
     case 6:
       kh.create_graph_coloring_handle(COLORING_EB);
       break;
@@ -221,6 +225,10 @@ void run_experiment(
 
     case 8:
       kh.create_graph_coloring_handle(COLORING_VBDBIT);
+      break;
+
+    case 9:
+      kh.create_graph_coloring_handle(COLORING_VBDP);
       break;
 
     default:

@@ -57,6 +57,7 @@ enum ColoringAlgorithm { COLORING_DEFAULT,
                          COLORING_VBCS,                       // Vertex Based Color Set
                          COLORING_VBD,                        // Vertex Based Deterministic Coloring
                          COLORING_VBDBIT,                     // Vertex Based Deterministic Coloring with bit array
+                         COLORING_VBDP,                       // Vertex Based Deterministic Coloring using a partitioner
                          COLORING_EB,                         // Edge Based Coloring
                          COLORING_SERIAL2,
                          COLORING_SPGEMM,
@@ -116,33 +117,37 @@ private:
   ColoringType GraphColoringType;
   //Parameters
   ColoringAlgorithm coloring_algorithm_type; //VB, VBBIT, VBCS, VBD or EB.
-  ConflictList conflict_list_type;  // whether to use a conflict list or not, and
-                                    // if using it wheter to create it with atomic or parallel prefix sum.
+  ConflictList conflict_list_type; // whether to use a conflict list or not, and
+                                   // if using it wheter to create it with atomic or parallel prefix sum.
 
   double min_reduction_for_conflictlist;
-                      //if used pps is selected to create conflict list, what min percantage should be the vertex list
-                      //be reduced, to create the new vertexlist. If it is reduced less than this percantage, use the
-                      //previous array.
+                                   // If used pps is selected to create conflict list, what min
+                                   // percantage should be the vertex list be reduced, to create
+                                   // the new vertexlist.
+                                   // If it is reduced less than this percantage, use theprevious array.
 
   int min_elements_for_conflictlist;
-                            //minimum number of elements to create a new conflict list.
-                            //if current conflict list size is smaller than this number,
-                            //than we do not need to create a new conflict list.
+                                   // Minimum number of elements to create a new conflict list.
+                                   // If current conflict list size is smaller than this number,
+                                   // than we do not need to create a new conflict list.
 
-  bool serial_conflict_resolution;//perform parallel greedy coloring once, then resolve conflict serially.
-  bool tictoc; //print time at every step
+  bool serial_conflict_resolution; // Perform parallel greedy coloring once, then resolve conflict serially.
+  bool tictoc;                     // Print time at every step
 
-  bool vb_edge_filtering;  //whether to do edge filtering or not in vertex based algorithms. Swaps on the ad error.
+  bool vb_edge_filtering;          // Whether to do edge filtering or not in vertex based algorithms. Swaps on the ad error.
 
-  int vb_chunk_size;  //the (minimum) size of the consecutive works that a thread will be assigned to.
-  int max_number_of_iterations; //maximum allowed number of phases
+  int  vb_chunk_size;              // The (minimum) size of the consecutive works that a thread will be assigned to.
+  int  max_number_of_iterations;   // Maximum allowed number of phases
 
-  int eb_num_initial_colors; //the number of colors to assign at the beginning of the edge-based algorithm
+  int  eb_num_initial_colors;      // The number of colors to assign at the beginning of the edge-based algorithm.
+
+  bool vbd_lid_reordering;         // Whether a reordering of the lids should be performed before
+                                   // the calculation of the dependency list.
 
   //STATISTICS
-  double overall_coloring_time; //the overall time that it took to color the graph. In the case of the iterative calls.
-  double coloring_time; //the time that it took to color the graph
-  int num_phases; //
+  double overall_coloring_time;    // The overall time that it took to color the graph. In the case of the iterative calls.
+  double coloring_time;            // The time that it took to color the graph
+  int    num_phases;               // Total number iterations required to color the graph.
 
 
   size_type size_of_edge_list;
@@ -150,8 +155,8 @@ private:
   nnz_lno_persistent_work_view_t lower_triangle_dst;
 
   color_view_t vertex_colors;
-  bool is_coloring_called_before;
-  nnz_lno_t num_colors;
+  bool         is_coloring_called_before;
+  nnz_lno_t    num_colors;
 
 
 
@@ -172,6 +177,7 @@ private:
     vb_edge_filtering(false),
     vb_chunk_size(8),
     max_number_of_iterations(200), eb_num_initial_colors(1),
+    vbd_lid_reordering(false),
     overall_coloring_time(0),
     coloring_time(0),
     num_phases(0), size_of_edge_list(0), lower_triangle_src(), lower_triangle_dst(),
@@ -597,6 +603,7 @@ private:
     case COLORING_VBCS:
     case COLORING_VBD:
     case COLORING_VBDBIT:
+    case COLORING_VBDP:
     case COLORING_SERIAL:
     case COLORING_SERIAL2:
     case COLORING_SPGEMM:
@@ -636,20 +643,22 @@ private:
   //getters
   ColoringAlgorithm get_coloring_algo_type() const {return this->coloring_algorithm_type;}
   ConflictList get_conflict_list_type() const {return this->conflict_list_type;}
-  double get_min_reduction_for_conflictlist() const{return this->min_reduction_for_conflictlist;}
-  int get_min_elements_for_conflictlist() const{ return this->min_elements_for_conflictlist;}
-  bool get_serial_conflict_resolution() const{return this->serial_conflict_resolution;}
-  bool get_tictoc() const{return this->tictoc;}
-  bool get_vb_edge_filtering() const{return this->vb_edge_filtering;}
-  int get_vb_chunk_size() const{return this->vb_chunk_size;}
-  int get_max_number_of_iterations() const{return this->max_number_of_iterations;}
-  int get_eb_num_initial_colors() const{return this->eb_num_initial_colors;}
+  double get_min_reduction_for_conflictlist() const {return this->min_reduction_for_conflictlist;}
+  int    get_min_elements_for_conflictlist() const {return this->min_elements_for_conflictlist;}
+  bool   get_serial_conflict_resolution() const {return this->serial_conflict_resolution;}
+  bool   get_tictoc() const {return this->tictoc;}
+  bool   get_vb_edge_filtering() const {return this->vb_edge_filtering;}
+  int    get_vb_chunk_size() const {return this->vb_chunk_size;}
+  int    get_max_number_of_iterations() const {return this->max_number_of_iterations;}
+  int    get_eb_num_initial_colors() const {return this->eb_num_initial_colors;}
+  bool   get_vbd_lid_reordering() const {return this->vbd_lid_reordering;}
 
-  double get_overall_coloring_time() const { return this->overall_coloring_time;}
-  double get_coloring_time() const { return this->coloring_time;}
-  int get_num_phases() const { return this->num_phases;}
+  double get_overall_coloring_time() const {return this->overall_coloring_time;}
+  double get_coloring_time() const {return this->coloring_time;}
+  int    get_num_phases() const {return this->num_phases;}
   color_view_t get_vertex_colors() const {return this->vertex_colors;}
-  bool is_coloring_called() const {return this->is_coloring_called_before;}
+  bool   is_coloring_called() const {return this->is_coloring_called_before;}
+
   //setters
   void set_coloring_algo_type(const ColoringAlgorithm &col_algo){this->coloring_algorithm_type = col_algo;}
   void set_conflict_list_type(const ConflictList &cl){this->conflict_list_type = cl;}
@@ -661,6 +670,8 @@ private:
   void set_vb_chunk_size(const int &chunksize){this->vb_chunk_size = chunksize;}
   void set_max_number_of_iterations(const int &max_phases){this->max_number_of_iterations = max_phases;}
   void set_eb_num_initial_colors(const int &num_initial_colors){this->eb_num_initial_colors = num_initial_colors;}
+  void set_vbd_lid_reordering(const bool& reorder_lids) {this->vbd_lid_reordering = reorder_lids;}
+
   void add_to_overall_coloring_time(const double &coloring_time_){this->overall_coloring_time += coloring_time_;}
   void set_coloring_time(const double &coloring_time_){this->coloring_time = coloring_time_;}
   void set_num_phases(const double &num_phases_){this->num_phases = num_phases_;}

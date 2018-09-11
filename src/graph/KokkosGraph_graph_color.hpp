@@ -100,7 +100,12 @@ void graph_color_symbolic(
   case COLORING_VBD:
   case COLORING_VBDBIT:
     typedef typename Impl::GraphColor_VBD <typename KernelHandle::GraphColoringHandleType, lno_row_view_t_, lno_nnz_view_t_> VBDGraphColoring;
-    gc = new VBDGraphColoring(num_rows, entries.dimension_0(), row_map, entries, gch);
+    gc = new VBDGraphColoring(num_rows, entries.extent(0), row_map, entries, gch);
+    break;
+
+  case COLORING_VBDP:
+    using VBDPGraphColoring = typename Impl::GraphColor_VBDP <typename KernelHandle::GraphColoringHandleType, lno_row_view_t_, lno_nnz_view_t_>;
+    gc = new VBDPGraphColoring(num_rows, entries.extent(0), row_map, entries, gch);
     break;
 
   case COLORING_EB:
