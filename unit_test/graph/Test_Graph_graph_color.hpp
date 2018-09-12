@@ -124,9 +124,9 @@ void test_coloring(lno_t numRows,size_type nnz, lno_t bandwidth, lno_t row_size_
   graph_t static_graph (sym_adj, sym_xadj);
   input_mat = crsMat_t("CrsMatrix", numCols, newValues, static_graph);
 
-  ColoringAlgorithm coloring_algorithms[] = {COLORING_DEFAULT, COLORING_SERIAL, COLORING_VB, COLORING_VBBIT, COLORING_VBCS, COLORING_EB, COLORING_VBD, COLORING_VBDBIT};
+  ColoringAlgorithm coloring_algorithms[] = {COLORING_DEFAULT, COLORING_SERIAL, COLORING_VB, COLORING_VBBIT, COLORING_VBCS, COLORING_EB, COLORING_VBD, COLORING_VBDBIT, COLORING_VBDP};
 
-  for (int ii = 0; ii < 8; ++ii){
+  for (int ii = 0; ii < 9; ++ii){
     ColoringAlgorithm coloring_algorithm = coloring_algorithms[ii];
     color_view_t vector_colors;
     size_t num_colors;
