@@ -2915,20 +2915,20 @@ public:
 
   struct subdomainColoringFunctor {
     nnz_lno_t numVertices_;
-    const_lno_row_view_t xadj_;
-    const_lno_nnz_view_t adj_;
+    const_lno_row_view_t rowPtr_;
+    const_lno_nnz_view_t colVec_;
     color_view_type colors_;
     nnz_lno_t numSubdomains_;
     color_t maxNumColors_;
     nnz_lno_temp_work_view_t numLocalConflicts_;
     nnz_lno_temp_work_view_t conflicts_;
 
-    subdomainColoringFunctor(nnz_lno_t numVertices, const_lno_row_view_t xadj,
-                             const_lno_nnz_view_t adj, color_view_type colors,
+    subdomainColoringFunctor(nnz_lno_t numVertices, const_lno_row_view_t rowPtr,
+                             const_lno_nnz_view_t colVec, color_view_type colors,
                              nnz_lno_t numSubdomains, color_t maxNumColors,
                              nnz_lno_temp_work_view_t numLocalConflicts,
                              nnz_lno_temp_work_view_t conflicts)
-      : numVertices_(numVertices), xadj_(xadj), adj_(adj), colors_(colors),
+      : numVertices_(numVertices), rowPtr_(rowPtr), colVec_(colVec), colors_(colors),
         numSubdomains_(numSubdomains), maxNumColors_(maxNumColors),
         numLocalConflicts_(numLocalConflicts), conflicts_(conflicts) {}
 
@@ -2956,8 +2956,8 @@ public:
         for(color_t color = 0; color < maxNumColors_; ++color) {bannedColors[color] = 0;}
 
         // Loop over nodeIdx's neighbors
-        for(size_type neigh = xadj_[nodeIdx]; neigh < xadj_[nodeIdx + 1]; ++neigh) {
-          nnz_lno_t neighIdx = adj_[neigh];
+        for(size_type neigh = rowPtr_[nodeIdx]; neigh < rowPtr_[nodeIdx + 1]; ++neigh) {
+          nnz_lno_t neighIdx = colVec_[neigh];
           if(neighIdx < startDomainIdx) {
             // The neighIdx is not in the local subdomain range so nodeIdx is not interior
             isNodeInterior = 0;
@@ -2988,20 +2988,20 @@ public:
 
   struct serialConflictResolutionFunctor {
     nnz_lno_t numVertices_;
-    const_lno_row_view_t xadj_;
-    const_lno_nnz_view_t adj_;
+    const_lno_row_view_t rowPtr_;
+    const_lno_nnz_view_t colVec_;
     color_view_type colors_;
     nnz_lno_t numSubdomains_;
     color_t maxNumColors_;
     nnz_lno_temp_work_view_t numLocalConflicts_;
     nnz_lno_temp_work_view_t conflicts_;
 
-    serialConflictResolutionFunctor(nnz_lno_t numVertices, const_lno_row_view_t xadj,
-                                    const_lno_nnz_view_t adj, color_view_type colors,
+    serialConflictResolutionFunctor(nnz_lno_t numVertices, const_lno_row_view_t rowPtr,
+                                    const_lno_nnz_view_t colVec, color_view_type colors,
                                     nnz_lno_t numSubdomains, color_t maxNumColors,
                                     nnz_lno_temp_work_view_t numLocalConflicts,
                                     nnz_lno_temp_work_view_t conflicts)
-      : numVertices_(numVertices), xadj_(xadj), adj_(adj), colors_(colors),
+      : numVertices_(numVertices), rowPtr_(rowPtr), colVec_(colVec), colors_(colors),
         numSubdomains_(numSubdomains), maxNumColors_(maxNumColors),
       numLocalConflicts_(numLocalConflicts), conflicts_(conflicts) {}
 
@@ -3030,8 +3030,8 @@ public:
           for(color_t color = 0; color < maxNumColors_; ++color) {bannedColors[color] = 0;}
 
           // Loop over nodeIdx's neighbors
-          for(size_type neigh = xadj_[nodeIdx]; neigh < xadj_[nodeIdx + 1]; ++neigh) {
-            nnz_lno_t neighIdx = adj_[neigh];
+          for(size_type neigh = rowPtr_[nodeIdx]; neigh < rowPtr_[nodeIdx + 1]; ++neigh) {
+            nnz_lno_t neighIdx = colVec_[neigh];
             bannedColors[colors_[neighIdx]] = 1;
           } // Loop over neighbors
 
