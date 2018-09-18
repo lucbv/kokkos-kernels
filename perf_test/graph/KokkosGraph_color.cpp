@@ -95,6 +95,9 @@ int parse_inputs (KokkosKernels::Experiment::Parameters &params, int argc, char 
     else if ( 0 == strcasecmp( argv[i] , "--verbose" ) ) {
       params.verbose = 1;
     }
+    else if ( 0 == strcasecmp( argv[i] , "--serialConflicts") ) {
+      params.serialConflicts = 1;
+    }
     else if ( 0 == strcasecmp( argv[i] , "--algorithm" ) ) {
       ++i;
       if ( 0 == strcasecmp( argv[i] , "COLORING_DEFAULT" ) ) {
@@ -160,6 +163,7 @@ void run_experiment(
   int team_size = params.team_size;
   int use_dynamic_scheduling = params.use_dynamic_scheduling;
   int verbose = params.verbose;
+  // int serialConflicts = params.serialConflicts;
 
   //char spgemm_step = params.spgemm_step;
   int vector_size = params.vector_size;
@@ -176,6 +180,10 @@ void run_experiment(
       <size_type,lno_t, lno_t,
       ExecSpace, TempMemSpace,PersistentMemSpace > KernelHandle;
 
+  // typedef KokkosGraph::GraphColoringHandle
+  //     <const size_type, const lno_t, const lno_t,
+  //     ExecSpace, TempMemSpace,PersistentMemSpace > GraphColoringHandle;
+
   KernelHandle kh;
   kh.set_team_work_size(chunk_size);
   kh.set_shmem_size(shmemsize);
@@ -189,8 +197,7 @@ void run_experiment(
   if (verbose){
     kh.set_verbose(true);
   }
-
-  std::cout << "algorithm: " << algorithm << std::endl;
+  // GraphColoringHandle* gch = kh.get_graph_coloring_handle();
 
   for (int i = 0; i < repeat; ++i){
 
@@ -233,8 +240,11 @@ void run_experiment(
 
     default:
       kh.create_graph_coloring_handle(COLORING_DEFAULT);
-
     }
+
+    // if(serialConflicts) {
+    //   gch->set_serial_conflict_resolution(true);
+    // }
 
     graph_color_symbolic(&kh,crsGraph.numRows(), crsGraph.numCols(), crsGraph.row_map, crsGraph.entries);
 

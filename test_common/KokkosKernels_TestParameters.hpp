@@ -54,6 +54,7 @@ struct Parameters{
   int team_size;
   int use_dynamic_scheduling;
   int verbose;
+  int serialConflicts;
   int spgemm_step;
   int vector_size;
   int check_output;
@@ -101,6 +102,7 @@ struct Parameters{
     team_size = -1;
     use_dynamic_scheduling = 0;
     verbose = 0;
+    serialConflicts = 0;
     spgemm_step = '0';
     vector_size = -1;
     check_output = 0;
