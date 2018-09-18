@@ -2861,49 +2861,72 @@ public:
    * \param num_loops: The number of loops in the while statement required to color the graph.
    */
   virtual void color_graph(color_view_type colors, int &num_loops) {
-    nnz_lno_t partition_size = 0;
-    nnz_lno_temp_work_view_t conflicts("conflict recording view", this->nv);
 
+    // Step 1: compute the max degree on the graph to have upper bound on the number of colors
     size_type maxDegree = 0;
+    nnz_lno_temp_work_view_t degrees("degrees view", this->nv);
     typedef typename Kokkos::Experimental::Max<size_type, MyExecSpace> maxDegreeReducerType;
     maxDegreeReducerType maxDegreeReducer(maxDegree);
-    functorMaxDegree<size_type, MyExecSpace> computeMaxDegree(this->xadj);
+    functorMaxDegree<size_type, MyExecSpace> computeMaxDegree(this->xadj, this->adj, degrees);
     Kokkos::parallel_reduce("Subdomain Coloring: compute max degree", my_exec_space(0,this->nv),
                             computeMaxDegree, maxDegreeReducer);
 
     std::cout << "maxDegree=" << maxDegree << std::endl;
 
+    // Step 2: split the problem into subdomains and color all nodes in the subdomain
+    //         while recording potential conflicts if a node has neighbors in another
+    //         subdomain.
     size_type numConflicts = 0;
     nnz_lno_t numSubdomains = MyExecSpace::concurrency();
     nnz_lno_temp_work_view_t numLocalConflicts("local conflicts view", numSubdomains);
+    nnz_lno_temp_work_view_t conflictNodes("conflict recording view", this->nv);
+    nnz_lno_temp_work_view_t conflictFlags("conflict flag view", this->nv);
     subdomainColoringFunctor mySubdomainColoring(this->nv, this->xadj, this->adj, colors,
                                                  numSubdomains, maxDegree,
-                                                 numLocalConflicts, conflicts);
+                                                 numLocalConflicts, conflictNodes, conflictFlags);
 
     Kokkos::RangePolicy<MyExecSpace> myRangePolicy(0, numSubdomains);
     Kokkos::parallel_reduce("Subdomain Coloring: tentative coloring", myRangePolicy,
                             mySubdomainColoring, numConflicts);
-    std::cout << "numConflict=" << numConflicts << std::endl;
-    std::cout << "numLocalConflicts: {";
-    for(nnz_lno_t domainIdx = 0; domainIdx < numSubdomains - 1; ++domainIdx) {
-      std::cout << numLocalConflicts[domainIdx] << ", ";
-    }
-    std::cout << numLocalConflicts[numSubdomains - 1] << "}" << std::endl;
 
-    if(serialConflictResolution_ || true) {
+    // Step 3: Loop over the nodes in conflict until no more conflicts exists.
+    //         This part can be done serially or in parallel.
+    //         Serial conflict resolution requires only one iteration to resolve all conflicts.
+    //         Parallel conflict resolution might require up to min(numSubdomain, maxDegree)
+    //         iterations to resolve all conflicts.
+    if(serialConflictResolution_) {
       std::cout << "Using serial conflict resolution" << std::endl;
+      std::cout << "numIterations=" << num_loops << std::endl;
+      std::cout << "numConflict=" << numConflicts << std::endl;
+      std::cout << "numLocalConflicts: {";
+      for(nnz_lno_t domainIdx = 0; domainIdx < numSubdomains - 1; ++domainIdx) {
+        std::cout << numLocalConflicts[domainIdx] << ", ";
+      }
+      std::cout << numLocalConflicts[numSubdomains - 1] << "}" << std::endl;
       serialConflictResolutionFunctor mySerialConflictResolution(this->nv, this->xadj, this->adj,
                                                                  colors, numSubdomains, maxDegree,
-                                                                 numLocalConflicts, conflicts);
+                                                                 numLocalConflicts, conflictNodes);
       mySerialConflictResolution();
     } else {
-      std::cout << "Using parallel conflict resolution" << std::endl;
-      parallelConflictResolutionFunctor myParallelConflictResolution(this->nv, this->xadj,
-                                                                     this->adj, colors,
-                                                                     numSubdomains, maxDegree,
-                                                                     numLocalConflicts, conflicts);
-      Kokkos::parallel_for("Subdomain Coloring: conflict resolution", myRangePolicy,
-                           myParallelConflictResolution);
+      while(0 < numConflicts) {
+        std::cout << "Using parallel conflict resolution" << std::endl;
+        std::cout << "numIterations=" << num_loops << std::endl;
+        std::cout << "numConflict=" << numConflicts << std::endl;
+        std::cout << "numLocalConflicts: {";
+        for(nnz_lno_t domainIdx = 0; domainIdx < numSubdomains - 1; ++domainIdx) {
+          std::cout << numLocalConflicts[domainIdx] << ", ";
+        }
+        std::cout << numLocalConflicts[numSubdomains - 1] << "}" << std::endl;
+        numConflicts = 0;
+        parallelConflictResolutionFunctor myParallelConflictResolution(this->nv, this->xadj,
+                                                                       this->adj, colors,
+                                                                       numSubdomains, maxDegree,
+                                                                       degrees, numLocalConflicts,
+                                                                       conflictNodes, conflictFlags);
+        Kokkos::parallel_reduce("Subdomain Coloring: conflict resolution", myRangePolicy,
+                                myParallelConflictResolution, numConflicts);
+        ++num_loops;
+      }
     }
 
   } // color_graph
@@ -2912,13 +2935,24 @@ public:
   template <class max_type, class execution_space>
   struct functorMaxDegree {
     typedef typename Kokkos::Experimental::Max<max_type, execution_space>::value_type valueType;
-    const_lno_row_view_t numNeighbors_;
+    const_lno_row_view_t rowPtr_;
+    const_lno_nnz_view_t colVec_;
+    nnz_lno_temp_work_view_t degrees_;
 
-    functorMaxDegree(const_lno_row_view_t numNeighbors) : numNeighbors_(numNeighbors) {}
+    functorMaxDegree(const_lno_row_view_t rowPtr, const_lno_nnz_view_t colVec,
+                     nnz_lno_temp_work_view_t degrees) :
+      rowPtr_(rowPtr), colVec_(colVec), degrees_(degrees) {}
 
     KOKKOS_INLINE_FUNCTION
     void operator() (const int i, valueType &update) const {
-      valueType myDegree = numNeighbors_(i + 1) - numNeighbors_(i);
+      valueType myDegree = 0;
+      nnz_lno_t colIdx;
+      for(size_type colVecOffset = rowPtr_[i]; colVecOffset < rowPtr_[i + 1]; ++colVecOffset) {
+        colIdx = colVec_[colVecOffset];
+        if(colIdx != i) {++myDegree;}
+      }
+      ++myDegree;    // Adding one since colors start at 1 not 0
+      degrees_[i] = myDegree;
       update = ( myDegree < update ? update : myDegree );
     }
   }; // functorMaxDegree()
@@ -2931,16 +2965,19 @@ public:
     nnz_lno_t numSubdomains_;
     color_t maxNumColors_;
     nnz_lno_temp_work_view_t numLocalConflicts_;
-    nnz_lno_temp_work_view_t conflicts_;
+    nnz_lno_temp_work_view_t conflictNodes_;
+    nnz_lno_temp_work_view_t conflictFlags_;
 
     subdomainColoringFunctor(nnz_lno_t numVertices, const_lno_row_view_t rowPtr,
                              const_lno_nnz_view_t colVec, color_view_type colors,
                              nnz_lno_t numSubdomains, color_t maxNumColors,
                              nnz_lno_temp_work_view_t numLocalConflicts,
-                             nnz_lno_temp_work_view_t conflicts)
-      : numVertices_(numVertices), rowPtr_(rowPtr), colVec_(colVec), colors_(colors),
-        numSubdomains_(numSubdomains), maxNumColors_(maxNumColors),
-        numLocalConflicts_(numLocalConflicts), conflicts_(conflicts) {}
+                             nnz_lno_temp_work_view_t conflictNodes,
+                             nnz_lno_temp_work_view_t conflictFlags) :
+      numVertices_(numVertices), rowPtr_(rowPtr), colVec_(colVec), colors_(colors),
+      numSubdomains_(numSubdomains), maxNumColors_(maxNumColors),
+      numLocalConflicts_(numLocalConflicts), conflictNodes_(conflictNodes),
+      conflictFlags_(conflictFlags) {}
 
     KOKKOS_INLINE_FUNCTION
     void operator() (const int domainIdx, size_type& update) const {
@@ -2959,22 +2996,29 @@ public:
       }
 
       // Perform a serial coloring of the local domain's interior nodes.
+      int isConflict;
       color_t* bannedColors = new color_t[maxNumColors_];
       for(nnz_lno_t nodeIdx = startDomainIdx; nodeIdx < endDomainIdx; ++nodeIdx) {
+        isConflict = 0;
         for(color_t color = 0; color < maxNumColors_; ++color) {bannedColors[color] = 0;}
 
         // Loop over nodeIdx's neighbors
         for(size_type neigh = rowPtr_[nodeIdx]; neigh < rowPtr_[nodeIdx + 1]; ++neigh) {
           nnz_lno_t neighIdx = colVec_[neigh];
-          if(neighIdx < startDomainIdx) {
-            // The neighIdx is not in the local subdomain range so nodeIdx is not interior
-            conflicts_[startDomainIdx + numLocalConflicts_[domainIdx]] = nodeIdx;
-            numLocalConflicts_[domainIdx] = numLocalConflicts_[domainIdx] + 1;
+          if(neighIdx < startDomainIdx || endDomainIdx - 1 < neighIdx) {
+            // The neighIdx is not in the local subdomain range, a conflict is detected
+            isConflict = 1;
             bannedColors[colors_[neighIdx]] = 1;
           } else {
             bannedColors[colors_[neighIdx]] = 1;
           }
         } // Loop over neighbors
+
+        if(isConflict == 1) {
+          conflictNodes_[startDomainIdx + numLocalConflicts_[domainIdx]] = nodeIdx;
+          conflictFlags_[nodeIdx] = 1;
+          numLocalConflicts_[domainIdx] = numLocalConflicts_[domainIdx] + 1;
+        }
 
         // Select current node's color
         for(color_t myColor = 1; myColor < maxNumColors_; ++myColor) {
@@ -3015,7 +3059,6 @@ public:
 
       color_t* bannedColors = new color_t[maxNumColors_];
       for(nnz_lno_t  domainIdx = 0; domainIdx < numSubdomains_; ++domainIdx) {
-        std::cout << "Resolving conflicts in subdomain " << domainIdx << "." << std::endl;
         // Define the local domain to be operated on.
         nnz_lno_t numDomainNodes = numVertices_ / numSubdomains_;
         nnz_lno_t extraNodes = numVertices_ % numSubdomains_;
@@ -3051,9 +3094,7 @@ public:
 
         } // Loop over local domain's nodes with conflicts
       }
-      std::cout << "All conflicts are resolved" << std::endl;
       delete [] bannedColors;
-      std::cout << "Memory has been freed!" << std::endl;
 
     } // operator()
 
@@ -3068,20 +3109,25 @@ public:
     color_view_type colors_;
     nnz_lno_t numSubdomains_;
     color_t maxNumColors_;
+    nnz_lno_temp_work_view_t degrees_;
     nnz_lno_temp_work_view_t numLocalConflicts_;
-    nnz_lno_temp_work_view_t conflicts_;
+    nnz_lno_temp_work_view_t conflictNodes_;
+    nnz_lno_temp_work_view_t conflictFlags_;
 
     parallelConflictResolutionFunctor(nnz_lno_t numVertices, const_lno_row_view_t rowPtr,
                                       const_lno_nnz_view_t colVec, color_view_type colors,
                                       nnz_lno_t numSubdomains, color_t maxNumColors,
+                                      nnz_lno_temp_work_view_t degrees,
                                       nnz_lno_temp_work_view_t numLocalConflicts,
-                                      nnz_lno_temp_work_view_t conflicts)
-      : numVertices_(numVertices), rowPtr_(rowPtr), colVec_(colVec), colors_(colors),
-        numSubdomains_(numSubdomains), maxNumColors_(maxNumColors),
-      numLocalConflicts_(numLocalConflicts), conflicts_(conflicts) {}
+                                      nnz_lno_temp_work_view_t conflictNodes,
+                                      nnz_lno_temp_work_view_t conflictFlags) :
+      numVertices_(numVertices), rowPtr_(rowPtr), colVec_(colVec), colors_(colors),
+      numSubdomains_(numSubdomains), maxNumColors_(maxNumColors), degrees_(degrees),
+      numLocalConflicts_(numLocalConflicts), conflictNodes_(conflictNodes),
+      conflictFlags_(conflictFlags) {}
 
     KOKKOS_INLINE_FUNCTION
-    void operator() (const int domainIdx) const {
+    void operator() (const int domainIdx, size_type& update) const {
 
       // Define the local domain to be operated on.
       nnz_lno_t numDomainNodes = numVertices_ / numSubdomains_;
@@ -3097,28 +3143,48 @@ public:
         endDomainIdx += extraNodes;
       }
 
-      // Perform a serial coloring of the local domain's nodes with conflicts.
+      // Sequential check each conflict and see if it need/can be resolved or not.
+      nnz_lno_t numRemainingLocalConflicts = 0;
       color_t* bannedColors = new color_t[maxNumColors_];
       for(nnz_lno_t conflictIdx = startDomainIdx; conflictIdx < startDomainIdx + numLocalConflicts_[domainIdx]; ++conflictIdx) {
-        nnz_lno_t nodeIdx = conflicts_[conflictIdx];
+        nnz_lno_t nodeIdx  = conflictNodes_[conflictIdx];
+        nnz_lno_t myDegree = degrees_[nodeIdx];
         for(color_t color = 0; color < maxNumColors_; ++color) {bannedColors[color] = 0;}
 
-        // Loop over nodeIdx's neighbors
+        // Loop over nodeIdx's neighbors see if a higher priority node exist, in which case yield,
+        // otherwise pick a color and mark it resolved by setting conflictFalgs[nodeIdx] = 0.
+        bool colorMe = true;
         for(size_type neigh = rowPtr_[nodeIdx]; neigh < rowPtr_[nodeIdx + 1]; ++neigh) {
           nnz_lno_t neighIdx = colVec_[neigh];
-          bannedColors[colors_[neighIdx]] = 1;
+          if( conflictFlags_[neighIdx] == 1 &&
+              ((degrees_[neighIdx] > myDegree) ||
+               ((degrees_[neighIdx] == myDegree) && (neighIdx < nodeIdx))) ) {
+            colorMe = false;
+            break;
+          } else {
+            bannedColors[colors_[neighIdx]] = 1;
+          }
         } // Loop over neighbors
 
+        if(colorMe) {
           // Select node's color
-        for(color_t myColor = 1; myColor < maxNumColors_; ++myColor) {
-          if(bannedColors[myColor] == 0) {
-            colors_[nodeIdx] = myColor;
-            break;
+          for(color_t myColor = 1; myColor < maxNumColors_; ++myColor) {
+            if(bannedColors[myColor] == 0) {
+              colors_[nodeIdx] = myColor;
+              break;
+            }
           }
+          conflictFlags_[nodeIdx] = 0;
+        } else {
+          // Record new conflict for new iteration
+          conflictNodes_[startDomainIdx + numRemainingLocalConflicts] = nodeIdx;
+          ++numRemainingLocalConflicts;
         }
 
       } // Loop over local domain's nodes with conflicts
       delete [] bannedColors;
+      numLocalConflicts_[domainIdx] = numRemainingLocalConflicts;
+      update += numRemainingLocalConflicts;
 
     } // operator()
 
