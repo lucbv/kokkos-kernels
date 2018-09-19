@@ -2897,14 +2897,6 @@ public:
     Kokkos::parallel_reduce("Subdomain Coloring: tentative coloring", myRangePolicy,
                             mySubdomainColoring, numConflicts);
 
-    if(_ticToc) {
-      std::cout << "color: {";
-      for(nnz_lno_t node = 0; node < this->nv - 1; ++node) {
-        std::cout << colors[node] << ", ";
-      }
-      std::cout << colors[this->nv - 1] << "}" << std::endl;
-    }
-
     // Step 3: Loop over the nodes in conflict until no more conflicts exists.
     //         This part can be done serially or in parallel.
     //         Serial conflict resolution requires only one iteration to resolve all conflicts.
@@ -2937,11 +2929,6 @@ public:
             std::cout << numLocalConflicts[domainIdx] << ", ";
           }
           std::cout << numLocalConflicts[numSubdomains - 1] << "}" << std::endl;
-          std::cout << "conflict flags: {";
-          for(nnz_lno_t conflictId = 0; conflictId < this->nv - 1; ++conflictId) {
-            std::cout << conflictFlags[conflictId] << ", ";
-          }
-          std::cout << conflictFlags[this->nv - 1] << "}" << std::endl;;
         }
 
         // Reset the conflict counter and start resolving conflicts in each domains
@@ -3222,11 +3209,6 @@ public:
         } // Loop over neighbors
 
         if(colorMe) {
-          std::cout << "banned colors: {";
-          for(color_t myColor = 1; myColor < maxNumColors_ - 1; ++myColor) {
-            std::cout << bannedColors[myColor] << ",";
-          }
-          std::cout << bannedColors[maxNumColors_ - 1] << "}" << std::endl;
           // Select node's color
           for(color_t myColor = 1; myColor < maxNumColors_; ++myColor) {
             if(bannedColors[myColor] == 0) {
