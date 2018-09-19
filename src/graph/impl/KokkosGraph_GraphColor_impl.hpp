@@ -2873,6 +2873,11 @@ public:
 
     if(_ticToc) {
       std::cout << "maxDegree=" << maxDegree << std::endl;
+      std::cout << "degree: {";
+      for(nnz_lno_t node = 0; node < this->nv - 1; ++node) {
+        std::cout << degrees[node] << ", ";
+      }
+      std::cout << degrees[this->nv - 1] << "}" << std::endl;
     }
 
     // Step 2: split the problem into subdomains and color all nodes in the subdomain
@@ -2924,6 +2929,11 @@ public:
             std::cout << numLocalConflicts[domainIdx] << ", ";
           }
           std::cout << numLocalConflicts[numSubdomains - 1] << "}" << std::endl;
+          std::cout << "conflict flags: {";
+          for(nnz_lno_t conflictId = 0; conflictId < this->nv - 1; ++conflictId) {
+            std::cout << conflictFlags[conflictId] << ", ";
+          }
+          std::cout << conflictFlags[this->nv - 1] << "}" << std::endl;;
         }
 
         // Reset the conflict counter and start resolving conflicts in each domains
@@ -3191,7 +3201,7 @@ public:
         bool colorMe = true;
         for(size_type neigh = rowPtr_[nodeIdx]; neigh < rowPtr_[nodeIdx + 1]; ++neigh) {
           nnz_lno_t neighIdx = colVec_[neigh];
-          if( conflictFlags_[neighIdx] == 1 &&
+          if( conflictFlags_[neighIdx] == 1 && (neighIdx < startDomainIdx || neighIdx > endDomainIdx - 1) &&
               ((degrees_[neighIdx] > myDegree) ||
                ((degrees_[neighIdx] == myDegree) && (neighIdx < nodeIdx))) ) {
             colorMe = false;
