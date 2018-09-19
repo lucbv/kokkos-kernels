@@ -2897,6 +2897,14 @@ public:
     Kokkos::parallel_reduce("Subdomain Coloring: tentative coloring", myRangePolicy,
                             mySubdomainColoring, numConflicts);
 
+    if(_ticToc) {
+      std::cout << "color: {";
+      for(nnz_lno_t node = 0; node < this->nv - 1; ++node) {
+        std::cout << colors[node] << ", ";
+      }
+      std::cout << colors[this->nv - 1] << "}" << std::endl;
+    }
+
     // Step 3: Loop over the nodes in conflict until no more conflicts exists.
     //         This part can be done serially or in parallel.
     //         Serial conflict resolution requires only one iteration to resolve all conflicts.
@@ -3201,18 +3209,24 @@ public:
         bool colorMe = true;
         for(size_type neigh = rowPtr_[nodeIdx]; neigh < rowPtr_[nodeIdx + 1]; ++neigh) {
           nnz_lno_t neighIdx = colVec_[neigh];
-          if( conflictFlags_[neighIdx] == 1 && (neighIdx < startDomainIdx || neighIdx > endDomainIdx - 1) &&
+          if( conflictFlags_[neighIdx] == 1 && /* If my neighbor is in conflict */
+              (neighIdx < startDomainIdx || neighIdx > endDomainIdx - 1) && /* and it is on another subdomain */
               ((degrees_[neighIdx] > myDegree) ||
-               ((degrees_[neighIdx] == myDegree) && (neighIdx < nodeIdx))) ) {
+               ((degrees_[neighIdx] == myDegree) && (neighIdx < nodeIdx))) /* with a higher priority than me */) {
             colorMe = false;
             break;
-          } else if(conflictFlags_[neighIdx] == 0) {
+          } else if(neighIdx != nodeIdx) {
             // Disregard color of neighbors still in conflict as it will change later
             bannedColors[colors_[neighIdx]] = 1;
           }
         } // Loop over neighbors
 
         if(colorMe) {
+          std::cout << "banned colors: {";
+          for(color_t myColor = 1; myColor < maxNumColors_ - 1; ++myColor) {
+            std::cout << bannedColors[myColor] << ",";
+          }
+          std::cout << bannedColors[maxNumColors_ - 1] << "}" << std::endl;
           // Select node's color
           for(color_t myColor = 1; myColor < maxNumColors_; ++myColor) {
             if(bannedColors[myColor] == 0) {
