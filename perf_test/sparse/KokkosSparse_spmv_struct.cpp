@@ -86,17 +86,18 @@ int main(int argc, char **argv)
 {
   typedef double Scalar;
 
-  int nx = 100;
-  int ny = 100;
-  int nz = 100;
-  int stencil_type = 1;
-  int numDimensions = 2;
-  int check_errors=false;
-  int compare=false;
-  int loop = 100;
-  int vl = -1;
-  int ts = -1;
-  int ws = -1;
+  int  nx = 100;
+  int  ny = 100;
+  int  nz = 100;
+  int  stencil_type = 1;
+  int  numDimensions = 2;
+  int  numVecs = 1;
+  bool check_errors = false;
+  bool compare = false;
+  int  loop = 100;
+  int  vl = -1;
+  int  ts = -1;
+  int  ws = -1;
 
   if(argc == 1) {
     print_help();
@@ -110,6 +111,7 @@ int main(int argc, char **argv)
       if((strcmp(argv[i],"-nz" )==0)) {nz=atoi(argv[++i]); continue;}
       if((strcmp(argv[i],"-st" )==0)) {stencil_type=atoi(argv[++i]); continue;}
       if((strcmp(argv[i],"-dim")==0)) {numDimensions=atoi(argv[++i]); continue;}
+      if((strcmp(argv[i],"-mv" )==0)) {numVecs=atoi(argv[++i]); continue;}
       if((strcmp(argv[i],"-l"  )==0)) {loop=atoi(argv[++i]); continue;}
       if((strcmp(argv[i],"-vl" )==0)) {vl=atoi(argv[++i]); continue;}
       if((strcmp(argv[i],"-ts" )==0)) {ts=atoi(argv[++i]); continue;}
@@ -142,8 +144,8 @@ int main(int argc, char **argv)
   {
 
     typedef KokkosSparse::CrsMatrix<Scalar,int,Kokkos::DefaultExecutionSpace,void,int> matrix_type;
-    typedef typename Kokkos::View<Scalar*,Kokkos::LayoutLeft> mv_type;
-    typedef typename Kokkos::View<Scalar*,Kokkos::LayoutLeft,Kokkos::MemoryRandomAccess > mv_random_read_type;
+    typedef typename Kokkos::View<Scalar**,Kokkos::LayoutLeft> mv_type;
+    // typedef typename Kokkos::View<Scalar*,Kokkos::LayoutLeft,Kokkos::MemoryRandomAccess > mv_random_read_type;
     typedef typename mv_type::HostMirror h_mv_type;
 
     int leftBC = 1, rightBC = 1, frontBC = 1, backBC = 1, bottomBC = 1, topBC = 1;
@@ -195,18 +197,18 @@ int main(int argc, char **argv)
 							  mat_structure);
     }
 
-    mv_type x("X", A.numCols());
-    mv_random_read_type t_x(x);
-    mv_type y("Y", A.numRows());
+    mv_type x("X", A.numCols(), numVecs);
+    // mv_random_read_type t_x(x);
+    mv_type y("Y", A.numRows(), numVecs);
     h_mv_type h_x = Kokkos::create_mirror_view(x);
     h_mv_type h_y = Kokkos::create_mirror_view(y);
     h_mv_type h_y_compare;
 
-    for(int i = 0; i < A.numCols(); i++) {
-      h_x(i) = (Scalar) (1.0*(rand()%40)-20.);
-    }
-    for(int i = 0; i < A.numRows(); i++) {
-      h_y(i) = (Scalar) (1.0*(rand()%40)-20.);
+    for(int rowIdx = 0; rowIdx < A.numCols(); ++rowIdx) {
+      for(int vecIdx = 0; vecIdx < numVecs; ++vecIdx) {
+        h_x(rowIdx, vecIdx) = static_cast<Scalar>(1.0*(rand()%40)-20.0);
+        h_y(rowIdx, vecIdx) = static_cast<Scalar>(1.0*(rand()%40)-20.0);
+      }
     }
 
     if(check_errors) {
@@ -215,29 +217,29 @@ int main(int argc, char **argv)
       typename matrix_type::values_type::HostMirror h_values = Kokkos::create_mirror_view(A.values);
 
       // Error Check Gold Values
-      for(int i = 0; i < A.numRows(); i++) {
-	int start = h_graph.row_map(i);
-	int end = h_graph.row_map(i+1);
-	for(int j = start; j < end; j++) {
-	  h_values(j) = h_graph.entries(j) + i;
-	}
+      for(int rowIdx = 0; rowIdx < A.numRows(); ++rowIdx) {
+        int start = h_graph.row_map(rowIdx);
+        int end = h_graph.row_map(rowIdx + 1);
 
-	h_y_compare(i) = 0;
-	for(int j = start; j < end; j++) {
-	  Scalar tmp_val = h_graph.entries(j) + i;
-	  int idx = h_graph.entries(j);
-	  h_y_compare(i)+=tmp_val*h_x(idx);
-	}
+        for(int vecIdx = 0; vecIdx < numVecs; ++vecIdx) {
+          h_y_compare(rowIdx, vecIdx) = 0;
+        }
+        for(int entryIdx = start; entryIdx < end; ++entryIdx) {
+          // Scalar tmp_val = h_graph.entries(entryIdx) + i;
+          int idx = h_graph.entries(entryIdx);
+          for(int vecIdx = 0; vecIdx < numVecs; ++vecIdx) {
+            h_y_compare(rowIdx, vecIdx) += h_values(entryIdx)*h_x(idx, vecIdx);
+          }
+        }
       }
-      Kokkos::deep_copy(A.graph.entries,h_graph.entries);
-      Kokkos::deep_copy(A.values,h_values);
     }
 
-    Kokkos::deep_copy(x,h_x);
-    Kokkos::deep_copy(y,h_y);
-    typename KokkosSparse::CrsMatrix<Scalar,int,Kokkos::DefaultExecutionSpace,void,int>::values_type x1("X1", A.numCols());
-    Kokkos::deep_copy(x1,h_x);
-    typename KokkosSparse::CrsMatrix<Scalar,int,Kokkos::DefaultExecutionSpace,void,int>::values_type y1("Y1", A.numRows());
+    Kokkos::deep_copy(x, h_x);
+    Kokkos::deep_copy(y, h_y);
+    Kokkos::View<Scalar**, Kokkos::LayoutLeft, Kokkos::DefaultExecutionSpace> x1("X1", A.numCols(), numVecs);
+    Kokkos::View<Scalar**, Kokkos::LayoutLeft, Kokkos::DefaultExecutionSpace> y1("Y1", A.numRows(), numVecs);
+    Kokkos::deep_copy(x1, h_x);
+    // typename KokkosSparse::CrsMatrix<Scalar,int,Kokkos::DefaultExecutionSpace,void,int>::values_type y1("Y1", A.numRows(), numVecs);
 
     {
       Kokkos::Profiling::pushRegion("Structured spmv test");
@@ -256,15 +258,15 @@ int main(int argc, char **argv)
       }
 
       // Performance Output
-      double matrix_size = 1.0*((A.nnz()*(sizeof(Scalar)+sizeof(int)) + A.numRows()*sizeof(int)))/1024/1024;
+      double matrix_size = 1.0*((A.nnz()*(sizeof(Scalar) + sizeof(int)) + A.numRows()*sizeof(int)))/1024/1024;
       double vector_size = 2.0*A.numRows()*sizeof(Scalar)/1024/1024;
-      double vector_readwrite = (A.nnz()+A.numCols())*sizeof(Scalar)/1024/1024;
+      double vector_readwrite = (A.nnz() + A.numCols())*sizeof(Scalar)/1024/1024;
 
       double problem_size = matrix_size+vector_size;
       printf("Type NNZ NumRows NumCols ProblemSize(MB) AveBandwidth(GB/s) MinBandwidth(GB/s) MaxBandwidth(GB/s) AveGFlop MinGFlop MaxGFlop aveTime(ms) maxTime(ms) minTime(ms)\n");
       printf("Struct %i %i %i %6.2lf ( %6.2lf %6.2lf %6.2lf ) ( %6.3lf %6.3lf %6.3lf ) ( %6.3lf %6.3lf %6.3lf )\n",
-	     A.nnz(), A.numRows(),A.numCols(),problem_size,
-	     (matrix_size+vector_readwrite)/ave_time*loop/1024, (matrix_size+vector_readwrite)/max_time/1024,(matrix_size+vector_readwrite)/min_time/1024,
+	     A.nnz(), A.numRows(), A.numCols(), problem_size,
+	     (matrix_size+vector_readwrite)/ave_time*loop/1024, (matrix_size+vector_readwrite)/max_time/1024, (matrix_size+vector_readwrite)/min_time/1024,
 	     2.0*A.nnz()*loop/ave_time/1e9, 2.0*A.nnz()/max_time/1e9, 2.0*A.nnz()/min_time/1e9,
 	     ave_time/loop*1000, max_time*1000, min_time*1000);
       Kokkos::Profiling::popRegion();
@@ -289,7 +291,7 @@ int main(int argc, char **argv)
       // Performance Output
       double matrix_size = 1.0*((A.nnz()*(sizeof(Scalar)+sizeof(int)) + A.numRows()*sizeof(int)))/1024/1024;
       double vector_size = 2.0*A.numRows()*sizeof(Scalar)/1024/1024;
-      double vector_readwrite = (A.nnz()+A.numCols())*sizeof(Scalar)/1024/1024;
+      double vector_readwrite = (A.nnz() + A.numCols())*sizeof(Scalar)/1024/1024;
 
       double problem_size = matrix_size+vector_size;
       printf("Unstr %i %i %i %6.2lf ( %6.2lf %6.2lf %6.2lf ) ( %6.3lf %6.3lf %6.3lf ) ( %6.3lf %6.3lf %6.3lf )\n",
@@ -302,12 +304,14 @@ int main(int argc, char **argv)
 
     if(check_errors) {
       // Error Check
-      Kokkos::deep_copy(h_y,y1);
+      Kokkos::deep_copy(h_y, y1);
       Scalar error = 0;
       Scalar sum = 0;
-      for(int i = 0; i < A.numRows(); i++) {
-	error += (h_y_compare(i)-h_y(i))*(h_y_compare(i)-h_y(i));
-	sum += h_y_compare(i)*h_y_compare(i);
+      for(int rowIdx = 0; rowIdx < A.numRows(); ++rowIdx) {
+        for(int vecIdx = 0; vecIdx < numVecs; ++vecIdx) {
+          error += (h_y_compare(rowIdx, vecIdx) - h_y(rowIdx, vecIdx))*(h_y_compare(rowIdx, vecIdx) - h_y(rowIdx, vecIdx));
+          sum += h_y_compare(rowIdx, vecIdx)*h_y_compare(rowIdx, vecIdx);
+        }
       }
 
       int num_errors = 0;

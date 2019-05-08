@@ -34,7 +34,7 @@ struct fSPMV {
   void operator()( const int i, value_type& err ) const {
     if(AT::abs(expected_y(i)-y(i))>eps) {
       err++;
-      printf("expected_y(%d)=%f, y(%d)=%f\n", i, expected_y(i), i, y(i));
+      printf("expected_y(%d)=%f, y(%d)=%f\n", i, AT::abs(expected_y(i)), i, AT::abs(y(i)));
     }
   }
 };

@@ -817,7 +817,7 @@ template<class AMatrix,
          int doalpha,
          int dobeta,
          bool conjugate>
-struct SPMV_MV_STRUCT_Transpose_Functor {
+struct SPMV_MV_Struct_Transpose_Functor {
   typedef typename AMatrix::execution_space            execution_space;
   typedef typename AMatrix::non_const_ordinal_type     ordinal_type;
   typedef typename AMatrix::non_const_value_type       A_value_type;
@@ -835,7 +835,7 @@ struct SPMV_MV_STRUCT_Transpose_Functor {
   const ordinal_type n;
   const ordinal_type rows_per_thread;
 
-  SPMV_MV_STRUCT_Transpose_Functor (const coefficient_type& alpha_,
+  SPMV_MV_Struct_Transpose_Functor (const coefficient_type& alpha_,
                                     const AMatrix& m_A_,
                                     const XVector& m_x_,
                                     const coefficient_type& beta_,
@@ -905,7 +905,7 @@ struct SPMV_MV_STRUCT_Transpose_Functor {
            int doalpha,
            int dobeta,
            bool conjugate>
-  struct SPMV_MV_STRUCT_LayoutLeft_Functor {
+  struct SPMV_MV_Struct_LayoutLeft_Functor {
     typedef typename AMatrix::execution_space            execution_space;
     typedef typename AMatrix::non_const_ordinal_type     ordinal_type;
     typedef typename AMatrix::non_const_value_type       A_value_type;
@@ -923,7 +923,7 @@ struct SPMV_MV_STRUCT_Transpose_Functor {
     ordinal_type n;
     ordinal_type rows_per_thread;
 
-    SPMV_MV_STRUCT_LayoutLeft_Functor (const coefficient_type& alpha_,
+    SPMV_MV_Struct_LayoutLeft_Functor (const coefficient_type& alpha_,
                                        const AMatrix& m_A_,
                                        const XVector& m_x_,
                                        const coefficient_type& beta_,
@@ -1312,7 +1312,7 @@ struct SPMV_MV_STRUCT_Transpose_Functor {
 
 #ifndef KOKKOS_FAST_COMPILE // This uses templated functions on doalpha and dobeta and will produce 16 kernels
 
-        typedef SPMV_MV_STRUCT_LayoutLeft_Functor<AMatrix, XVector, YVector,
+        typedef SPMV_MV_Struct_LayoutLeft_Functor<AMatrix, XVector, YVector,
                                                   doalpha, dobeta, conjugate> OpType;
         OpType op (alpha, A, x, beta, y, RowsPerThread<typename AMatrix::execution_space> (NNZPerRow));
 
@@ -1336,7 +1336,7 @@ struct SPMV_MV_STRUCT_Transpose_Functor {
 
 #else // KOKKOS_FAST_COMPILE this will only instantiate one Kernel for alpha/beta
 
-        typedef SPMV_MV_STRUCT_LayoutLeft_Functor<AMatrix, XVector, YVector,
+        typedef SPMV_MV_Struct_LayoutLeft_Functor<AMatrix, XVector, YVector,
                                                   2, 2, conjugate> OpType;
 
         typename AMatrix::const_ordinal_type nrow = A.numRows();
@@ -1401,7 +1401,7 @@ struct SPMV_MV_STRUCT_Transpose_Functor {
 
 #ifndef KOKKOS_FAST_COMPILE // This uses templated functions on doalpha and dobeta and will produce 16 kernels
 
-        typedef SPMV_MV_STRUCT_Transpose_Functor<AMatrix, XVector, YVector,
+        typedef SPMV_MV_Struct_Transpose_Functor<AMatrix, XVector, YVector,
                                                  doalpha, dobeta, conjugate> OpType;
         OpType op (alpha, A, x, beta, y, RowsPerThread<typename AMatrix::execution_space> (NNZPerRow));
 
@@ -1425,7 +1425,7 @@ struct SPMV_MV_STRUCT_Transpose_Functor {
 
 #else // KOKKOS_FAST_COMPILE this will only instantiate one Kernel for alpha/beta
 
-        typedef SPMV_MV_STRUCT_Transpose_Functor<AMatrix, XVector, YVector,
+        typedef SPMV_MV_Struct_Transpose_Functor<AMatrix, XVector, YVector,
                                                  2, 2, conjugate, SizeType> OpType;
 
         typename AMatrix::const_ordinal_type nrow = A.numRows();
