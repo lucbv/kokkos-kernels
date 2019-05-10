@@ -151,14 +151,15 @@ int main(int argc, char **argv)
 
   {
 
-    typedef KokkosSparse::CrsMatrix<Scalar,int,Kokkos::DefaultExecutionSpace,void,int> matrix_type;
-    typedef typename Kokkos::View<Scalar**,Kokkos::LayoutLeft> mv_type;
+    using matrix_type = KokkosSparse::CrsMatrix<Scalar,int,Kokkos::DefaultExecutionSpace,void,int>;
+    using mv_type = typename Kokkos::View<Scalar**,Kokkos::LayoutLeft>;
+    using h_mv_type = typename mv_type::HostMirror;
+    using ordinal_type = typename matrix_type::non_const_ordinal_type;
     // typedef typename Kokkos::View<Scalar*,Kokkos::LayoutLeft,Kokkos::MemoryRandomAccess > mv_random_read_type;
-    typedef typename mv_type::HostMirror h_mv_type;
 
     int leftBC = 1, rightBC = 1, frontBC = 1, backBC = 1, bottomBC = 1, topBC = 1;
 
-    Kokkos::View<int*, Kokkos::HostSpace> structure("Spmv Structure", numDimensions);
+    Kokkos::View<ordinal_type*, Kokkos::HostSpace> structure("Spmv Structure", numDimensions);
     Kokkos::View<int*[3], Kokkos::HostSpace> mat_structure("Matrix Structure", numDimensions);
     if(numDimensions == 1) {
       structure(0) = nx;

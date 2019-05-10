@@ -307,12 +307,13 @@ void test_spmv_mv(lno_t numRows,size_type nnz, lno_t bandwidth, lno_t row_size_v
 template <typename scalar_t, typename lno_t, typename size_type, class Device>
 void test_spmv_struct_1D(lno_t nx, lno_t leftBC, lno_t rightBC) {
 
-  typedef typename KokkosSparse::CrsMatrix<scalar_t, lno_t, Device, void, size_type> crsMat_t;
-  typedef typename crsMat_t::values_type::non_const_type  scalar_view_t;
-  typedef scalar_view_t x_vector_type;
-  typedef scalar_view_t y_vector_type;
+  using crsMat_t = typename KokkosSparse::CrsMatrix<scalar_t, lno_t, Device, void, size_type>;
+  using scalar_view_t = typename crsMat_t::values_type::non_const_type;
+  using x_vector_type = scalar_view_t;
+  using y_vector_type = scalar_view_t;
+  using ordinal_type = typename crsMat_t::non_const_ordinal_type;
 
-  Kokkos::View<lno_t*, Kokkos::HostSpace> structure("Spmv Structure", 1);
+  Kokkos::View<ordinal_type*, Kokkos::HostSpace> structure("Spmv Structure", 1);
   structure(0) = nx;
   Kokkos::View<lno_t*[3], Kokkos::HostSpace> mat_structure("Matrix Structure", 1);
   mat_structure(0, 0) = nx;
@@ -343,12 +344,13 @@ void test_spmv_struct_1D(lno_t nx, lno_t leftBC, lno_t rightBC) {
 template <typename scalar_t, typename lno_t, typename size_type, class Device>
 void test_spmv_struct_2D(lno_t nx, lno_t ny, lno_t horizontalBC, lno_t verticalBC) {
 
-  typedef typename KokkosSparse::CrsMatrix<scalar_t, lno_t, Device, void, size_type> crsMat_t;
-  typedef typename crsMat_t::values_type::non_const_type  scalar_view_t;
-  typedef scalar_view_t x_vector_type;
-  typedef scalar_view_t y_vector_type;
+  using crsMat_t = typename KokkosSparse::CrsMatrix<scalar_t, lno_t, Device, void, size_type>;
+  using scalar_view_t = typename crsMat_t::values_type::non_const_type;
+  using x_vector_type = scalar_view_t;
+  using y_vector_type = scalar_view_t;
+  using ordinal_type = typename crsMat_t::non_const_ordinal_type;
 
-  Kokkos::View<lno_t*, Kokkos::HostSpace> structure("Spmv Structure", 2);
+  Kokkos::View<ordinal_type*, Kokkos::HostSpace> structure("Spmv Structure", 2);
   structure(0) = nx;
   structure(1) = ny;
   Kokkos::View<lno_t*[3], Kokkos::HostSpace> mat_structure("Matrix Structure", 2);
@@ -388,12 +390,13 @@ void test_spmv_struct_2D(lno_t nx, lno_t ny, lno_t horizontalBC, lno_t verticalB
 template <typename scalar_t, typename lno_t, typename size_type, class Device>
 void test_spmv_struct_3D(lno_t nx, lno_t ny, lno_t nz, lno_t horizontal1BC, lno_t horizontal2BC, lno_t verticalBC) {
 
-  typedef typename KokkosSparse::CrsMatrix<scalar_t, lno_t, Device, void, size_type> crsMat_t;
-  typedef typename crsMat_t::values_type::non_const_type  scalar_view_t;
-  typedef scalar_view_t x_vector_type;
-  typedef scalar_view_t y_vector_type;
+  using crsMat_t = typename KokkosSparse::CrsMatrix<scalar_t, lno_t, Device, void, size_type>;
+  using scalar_view_t = typename crsMat_t::values_type::non_const_type;
+  using x_vector_type = scalar_view_t;
+  using y_vector_type = scalar_view_t;
+  using ordinal_type = typename crsMat_t::non_const_ordinal_type;
 
-  Kokkos::View<lno_t*, Kokkos::HostSpace> structure("Spmv Structure", 3);
+  Kokkos::View<ordinal_type*, Kokkos::HostSpace> structure("Spmv Structure", 3);
   structure(0) = nx;
   structure(1) = ny;
   structure(2) = nz;

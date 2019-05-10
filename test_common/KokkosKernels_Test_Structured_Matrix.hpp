@@ -3640,7 +3640,7 @@ namespace Test {
       name = "CrsMatrixFE";
     }
 
-    return CrsMatrix_t(name, numNodes, values_view, static_graph);
+    return CrsMatrix_t(name, numEqs, values_view, static_graph);
 
   } // generate_structured_matrix3D
 
