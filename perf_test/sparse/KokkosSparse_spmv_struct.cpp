@@ -68,6 +68,8 @@ typedef int LocalOrdinalType;
 
 void print_help() {
   printf("SPMV_struct benchmark code written by Luc Berger-Vergiat.\n");
+  printf("Goal:\n");
+  printf("  Assess the performance of the y = beta*y + alpha*A*x operation when A has a structured format.\n");
   printf("Options:\n");
   printf("  --check-errors  : Determine if the result of spmv_struct is compared to serial unstructured spmv.\n");
   printf("  --compare       : Compare results efficiency of spmv_struct and spmv.\n");
@@ -77,6 +79,8 @@ void print_help() {
   printf("  -nz             : How many nodes in z direction. \n");
   printf("  -st             : The stencil type used for discretization: 1 -> FD, 2 -> FE.\n");
   printf("  -dim            : Number of spacial dimensions used in the problem: 1, 2 or 3\n");
+  printf("  -mv             : Number of column in the x and y multivectors.\n");
+  printf("  -dof            : Number of degrees of freedom per node (all coulping terms in A are equal to 0.5).\n");
   printf("  -ws             : Worksets. \n");
   printf("  -ts             : Team Size. \n");
   printf("  -vl             : Vector length. \n");
@@ -92,8 +96,10 @@ int main(int argc, char **argv)
   int  stencil_type = 1;
   int  numDimensions = 2;
   int  numVecs = 1;
+  int  dofsPerNode = 1;
   bool check_errors = false;
   bool compare = false;
+  bool debug = false;
   int  loop = 100;
   int  vl = -1;
   int  ts = -1;
@@ -106,12 +112,14 @@ int main(int argc, char **argv)
 
   for(int i=0;i<argc;i++)
     {
+      if((strcmp(argv[i],"--debug" )==0)) {debug=true; continue;}
       if((strcmp(argv[i],"-nx" )==0)) {nx=atoi(argv[++i]); continue;}
       if((strcmp(argv[i],"-ny" )==0)) {ny=atoi(argv[++i]); continue;}
       if((strcmp(argv[i],"-nz" )==0)) {nz=atoi(argv[++i]); continue;}
       if((strcmp(argv[i],"-st" )==0)) {stencil_type=atoi(argv[++i]); continue;}
       if((strcmp(argv[i],"-dim")==0)) {numDimensions=atoi(argv[++i]); continue;}
       if((strcmp(argv[i],"-mv" )==0)) {numVecs=atoi(argv[++i]); continue;}
+      if((strcmp(argv[i],"-dof")==0)) {dofsPerNode=atoi(argv[++i]); continue;}
       if((strcmp(argv[i],"-l"  )==0)) {loop=atoi(argv[++i]); continue;}
       if((strcmp(argv[i],"-vl" )==0)) {vl=atoi(argv[++i]); continue;}
       if((strcmp(argv[i],"-ts" )==0)) {ts=atoi(argv[++i]); continue;}
@@ -194,7 +202,27 @@ int main(int argc, char **argv)
 							  mat_structure);
     } else if(numDimensions == 3) {
       A = Test::generate_structured_matrix3D<matrix_type>(discrectization_stencil,
-							  mat_structure);
+							  mat_structure,
+                                                          dofsPerNode);
+    }
+
+    if(debug) { // Debug code for the generation of matrix A
+      std::cout << "A:" << std::endl;
+      typename matrix_type::StaticCrsGraphType::HostMirror h_graph = Kokkos::create_mirror(A.graph);
+      typename matrix_type::values_type::HostMirror h_values = Kokkos::create_mirror_view(A.values);
+      for(int rowIdx = 0; rowIdx < A.numRows(); ++rowIdx) {
+        std::cout << "row " << rowIdx << ", rowPtr=[" << h_graph.row_map(rowIdx) << ", "
+                  << h_graph.row_map(rowIdx + 1) << "[, indices: {";
+        for(int entryIdx = h_graph.row_map(rowIdx); entryIdx < h_graph.row_map(rowIdx + 1) - 1; ++entryIdx) {
+          std::cout << h_graph.entries(entryIdx) << ", ";
+        }
+        std::cout << h_graph.entries(h_graph.row_map(rowIdx + 1) - 1) << "}";
+        std::cout << ", values {";
+        for(int entryIdx = h_graph.row_map(rowIdx); entryIdx < h_graph.row_map(rowIdx + 1) - 1; ++entryIdx) {
+          std::cout << h_values(entryIdx) << ", ";
+        }
+        std::cout << h_values(h_graph.row_map(rowIdx + 1) - 1) << "}" << std::endl;;
+      }
     }
 
     mv_type x("X", A.numCols(), numVecs);

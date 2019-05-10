@@ -839,6 +839,7 @@ namespace Test {
 
     // Internal variables and temporaries
     const int stencil_type;
+    const int dofsPerNode;
     const ordinal_type nx, ny, nz;
     const int leftBC, rightBC, frontBC, backBC, bottomBC, topBC;
 
@@ -866,14 +867,15 @@ namespace Test {
     ordinal_type numEntriesFrontRow;
     ordinal_type numEntriesBottomFrontRow;
 
-    fill_3D_matrix_functor(const int stencil_type_, const ordinal_type nx_,
-			   const ordinal_type ny_, const ordinal_type nz_,
+    fill_3D_matrix_functor(const int stencil_type_, const int dofsPerNode_,
+                           const ordinal_type nx_, const ordinal_type ny_, const ordinal_type nz_,
 			   const int leftBC_, const int rightBC_,
 			   const int frontBC_, const int backBC_,
 			   const int bottomBC_, const int topBC_,
 			   const row_map_view_t rowmap_, const cols_view_t columns_,
 			   const scalar_view_t values_) :
-      stencil_type(stencil_type_), nx(nx_), ny(ny_), nz(nz_),
+      stencil_type(stencil_type_), dofsPerNode(dofsPerNode_),
+      nx(nx_), ny(ny_), nz(nz_),
       leftBC(leftBC_), rightBC(rightBC_), frontBC(frontBC_),
       backBC(backBC_), bottomBC(bottomBC_), topBC(topBC_),
       rowmap(rowmap_), columns(columns_), values(values_) {
@@ -1007,36 +1009,51 @@ namespace Test {
 
     KOKKOS_INLINE_FUNCTION
     void operator() (const interiorFDTag&, const size_type idx) const {
-      // Compute row index
+      // Compute node indices
       const ordinal_type k   = idx / ((ny - frontBC - backBC)*(nx - leftBC - rightBC));
       const ordinal_type rem = idx % ((ny - frontBC - backBC)*(nx - leftBC - rightBC));
       const ordinal_type j   = rem / (nx - leftBC - rightBC);
       const ordinal_type i   = rem % (nx - leftBC - rightBC);
-      const ordinal_type rowIdx = (k + bottomBC)*ny*nx + (j + frontBC)*nx + i + leftBC;
 
-      // Compute rowOffset
-      const size_type rowOffset = k*numEntriesPerGridPlane + bottomBC*numEntriesBottomPlane
-        + j*numEntriesPerGridRow + frontBC*numEntriesFrontRow
-        + (i + 1)*interiorStencilLength + leftBC*faceStencilLength;
-      rowmap(rowIdx + 1) = rowOffset;
+      for(int dof = 0; dof < dofsPerNode; ++dof) {
+        // Compute dof rowIdx and rowOffset
+        const ordinal_type rowIdx = ((k + bottomBC)*ny*nx + (j + frontBC)*nx + i + leftBC)*dofsPerNode + dof;
+        const size_type rowOffset = (k*numEntriesPerGridPlane + bottomBC*numEntriesBottomPlane
+                                     + j*numEntriesPerGridRow + frontBC*numEntriesFrontRow
+                                     + i*interiorStencilLength + leftBC*faceStencilLength)*dofsPerNode*dofsPerNode + interiorStencilLength*dofsPerNode*dof;
+        rowmap(rowIdx + 1) = rowOffset + interiorStencilLength*dof;
 
-      // Fill column indices
-      columns(rowOffset - 7) = rowIdx - ny*nx;
-      columns(rowOffset - 6) = rowIdx - nx;
-      columns(rowOffset - 5) = rowIdx - 1;
-      columns(rowOffset - 4) = rowIdx;
-      columns(rowOffset - 3) = rowIdx + 1;
-      columns(rowOffset - 2) = rowIdx + nx;
-      columns(rowOffset - 1) = rowIdx + ny*nx;
+        for(int dofIdx = 0; dofIdx < dofsPerNode; ++dofIdx) {
+          // Fill column indices
+          columns(rowOffset + 0*dofsPerNode + dofIdx) = rowIdx - ny*nx*dofsPerNode + dofIdx;
+          columns(rowOffset + 1*dofsPerNode + dofIdx) = rowIdx - nx*dofsPerNode + dofIdx;
+          columns(rowOffset + 2*dofsPerNode + dofIdx) = rowIdx - dofsPerNode + dofIdx;
+          columns(rowOffset + 3*dofsPerNode + dofIdx) = rowIdx + dofIdx;
+          columns(rowOffset + 4*dofsPerNode + dofIdx) = rowIdx + dofsPerNode + dofIdx;
+          columns(rowOffset + 5*dofsPerNode + dofIdx) = rowIdx + nx*dofsPerNode + dofIdx;
+          columns(rowOffset + 6*dofsPerNode + dofIdx) = rowIdx + ny*nx*dofsPerNode + dofIdx;
 
-      // Fill values
-      values(rowOffset - 7) = -1.0;
-      values(rowOffset - 6) = -1.0;
-      values(rowOffset - 5) = -1.0;
-      values(rowOffset - 4) =  6.0;
-      values(rowOffset - 3) = -1.0;
-      values(rowOffset - 2) = -1.0;
-      values(rowOffset - 1) = -1.0;
+          // Fill values
+          if(dof == dofIdx) {
+            values(rowOffset + 0*dofsPerNode + dofIdx) = -1.0;
+            values(rowOffset + 1*dofsPerNode + dofIdx) = -1.0;
+            values(rowOffset + 2*dofsPerNode + dofIdx) = -1.0;
+            values(rowOffset + 3*dofsPerNode + dofIdx) =  6.0;
+            values(rowOffset + 4*dofsPerNode + dofIdx) = -1.0;
+            values(rowOffset + 5*dofsPerNode + dofIdx) = -1.0;
+            values(rowOffset + 6*dofsPerNode + dofIdx) = -1.0;
+          } else {
+            // Arbitrary 0.5 value for the coupling terms, could be set to zero for vector Laplacian
+            values(rowOffset + 0*dofsPerNode + dofIdx) = 0.5;
+            values(rowOffset + 1*dofsPerNode + dofIdx) = 0.5;
+            values(rowOffset + 2*dofsPerNode + dofIdx) = 0.5;
+            values(rowOffset + 3*dofsPerNode + dofIdx) = 0.5;
+            values(rowOffset + 4*dofsPerNode + dofIdx) = 0.5;
+            values(rowOffset + 5*dofsPerNode + dofIdx) = 0.5;
+            values(rowOffset + 6*dofsPerNode + dofIdx) = 0.5;
+          }
+        }
+      }
     }
 
     KOKKOS_INLINE_FUNCTION
@@ -1741,71 +1758,110 @@ namespace Test {
       const ordinal_type rem = idx % ((ny - frontBC - backBC)*(nx - leftBC - rightBC));
       const ordinal_type j   = rem / (nx - leftBC - rightBC);
       const ordinal_type i   = rem % (nx - leftBC - rightBC);
-      const ordinal_type rowIdx = (k + bottomBC)*ny*nx + (j + frontBC)*nx + i + leftBC;
+      const ordinal_type baseRowIdx = ((k + bottomBC)*ny*nx + (j + frontBC)*nx + i + leftBC)*dofsPerNode;
+      const size_type baseRowOffset = (k*numEntriesPerGridPlane + bottomBC*numEntriesBottomPlane
+                                       + j*numEntriesPerGridRow + frontBC*numEntriesFrontRow
+                                       + i*interiorStencilLength
+                                       + leftBC*faceStencilLength)*dofsPerNode*dofsPerNode;
 
-      // Compute rowOffset
-      const size_type rowOffset = k*numEntriesPerGridPlane + bottomBC*numEntriesBottomPlane
-        + j*numEntriesPerGridRow + frontBC*numEntriesFrontRow
-        + (i + 1)*interiorStencilLength + leftBC*faceStencilLength;
-      rowmap(rowIdx + 1) = rowOffset;
+      ordinal_type rowIdx = 0;
+      size_type rowOffset = 0;
+      for(int dofRowIdx = 0; dofRowIdx < dofsPerNode; ++dofRowIdx) {
+        // Compute rowOffset
+        rowIdx = baseRowIdx + dofRowIdx;
+        rowOffset = baseRowOffset + interiorStencilLength*dofsPerNode*dofRowIdx;
+        rowmap(rowIdx + 1) = rowOffset + interiorStencilLength*dofsPerNode;
 
       // Fill column indices
-      columns(rowOffset - 27) = rowIdx - ny*nx - nx - 1;
-      columns(rowOffset - 26) = rowIdx - ny*nx - nx;
-      columns(rowOffset - 25) = rowIdx - ny*nx - nx + 1;
-      columns(rowOffset - 24) = rowIdx - ny*nx - 1;
-      columns(rowOffset - 23) = rowIdx - ny*nx;
-      columns(rowOffset - 22) = rowIdx - ny*nx + 1;
-      columns(rowOffset - 21) = rowIdx - ny*nx + nx - 1;
-      columns(rowOffset - 20) = rowIdx - ny*nx + nx;
-      columns(rowOffset - 19) = rowIdx - ny*nx + nx + 1;
-      columns(rowOffset - 18) = rowIdx - nx - 1;
-      columns(rowOffset - 17) = rowIdx - nx;
-      columns(rowOffset - 16) = rowIdx - nx + 1;
-      columns(rowOffset - 15) = rowIdx - 1;
-      columns(rowOffset - 14) = rowIdx;
-      columns(rowOffset - 13) = rowIdx + 1;
-      columns(rowOffset - 12) = rowIdx + nx - 1;
-      columns(rowOffset - 11) = rowIdx + nx;
-      columns(rowOffset - 10) = rowIdx + nx + 1;
-      columns(rowOffset -  9) = rowIdx + nx*ny - nx - 1;
-      columns(rowOffset -  8) = rowIdx + nx*ny - nx;
-      columns(rowOffset -  7) = rowIdx + nx*ny - nx + 1;
-      columns(rowOffset -  6) = rowIdx + nx*ny - 1;
-      columns(rowOffset -  5) = rowIdx + nx*ny;
-      columns(rowOffset -  4) = rowIdx + nx*ny + 1;
-      columns(rowOffset -  3) = rowIdx + nx*ny + nx - 1;
-      columns(rowOffset -  2) = rowIdx + nx*ny + nx;
-      columns(rowOffset -  1) = rowIdx + nx*ny + nx + 1;
+        for(int dofIdx = 0; dofIdx < dofsPerNode; ++dofIdx) {
+          columns(rowOffset +  0*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - (ny*nx + nx + 1)*dofsPerNode;
+          columns(rowOffset +  1*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - (ny*nx + nx)*dofsPerNode;
+          columns(rowOffset +  2*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - (ny*nx + nx - 1)*dofsPerNode;
+          columns(rowOffset +  3*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - (ny*nx + 1)*dofsPerNode;
+          columns(rowOffset +  4*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - ny*nx*dofsPerNode;
+          columns(rowOffset +  5*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - (ny*nx - 1)*dofsPerNode;
+          columns(rowOffset +  6*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - (ny*nx - nx + 1)*dofsPerNode;
+          columns(rowOffset +  7*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - (ny*nx - nx)*dofsPerNode;
+          columns(rowOffset +  8*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - (ny*nx - nx - 1)*dofsPerNode;
+          columns(rowOffset +  9*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - (nx + 1)*dofsPerNode;
+          columns(rowOffset + 10*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - nx*dofsPerNode;
+          columns(rowOffset + 11*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - (nx - 1)*dofsPerNode;
+          columns(rowOffset + 12*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - 1*dofsPerNode;
+          columns(rowOffset + 13*dofsPerNode + dofIdx) = baseRowIdx + dofIdx;
+          columns(rowOffset + 14*dofsPerNode + dofIdx) = baseRowIdx + dofIdx + 1*dofsPerNode;
+          columns(rowOffset + 15*dofsPerNode + dofIdx) = baseRowIdx + dofIdx + (nx - 1)*dofsPerNode;
+          columns(rowOffset + 16*dofsPerNode + dofIdx) = baseRowIdx + dofIdx + nx*dofsPerNode;
+          columns(rowOffset + 17*dofsPerNode + dofIdx) = baseRowIdx + dofIdx + (nx + 1)*dofsPerNode;
+          columns(rowOffset + 18*dofsPerNode + dofIdx) = baseRowIdx + dofIdx + (nx*ny - nx - 1)*dofsPerNode;
+          columns(rowOffset + 19*dofsPerNode + dofIdx) = baseRowIdx + dofIdx + (nx*ny - nx)*dofsPerNode;
+          columns(rowOffset + 20*dofsPerNode + dofIdx) = baseRowIdx + dofIdx + (nx*ny - nx + 1)*dofsPerNode;
+          columns(rowOffset + 21*dofsPerNode + dofIdx) = baseRowIdx + dofIdx + (nx*ny - 1)*dofsPerNode;
+          columns(rowOffset + 22*dofsPerNode + dofIdx) = baseRowIdx + dofIdx + nx*ny*dofsPerNode;
+          columns(rowOffset + 23*dofsPerNode + dofIdx) = baseRowIdx + dofIdx + (nx*ny + 1)*dofsPerNode;
+          columns(rowOffset + 24*dofsPerNode + dofIdx) = baseRowIdx + dofIdx + (nx*ny + nx - 1)*dofsPerNode;
+          columns(rowOffset + 25*dofsPerNode + dofIdx) = baseRowIdx + dofIdx + (nx*ny + nx)*dofsPerNode;
+          columns(rowOffset + 26*dofsPerNode + dofIdx) = baseRowIdx + dofIdx + (nx*ny + nx + 1)*dofsPerNode;
 
-      // Fill values
-      values(rowOffset - 27) = -1.0;
-      values(rowOffset - 26) = -2.0;
-      values(rowOffset - 25) = -1.0;
-      values(rowOffset - 24) = -2.0;
-      values(rowOffset - 23) =  0.0;
-      values(rowOffset - 22) = -2.0;
-      values(rowOffset - 21) = -1.0;
-      values(rowOffset - 20) = -2.0;
-      values(rowOffset - 19) = -1.0;
-      values(rowOffset - 18) = -2.0;
-      values(rowOffset - 17) =  0.0;
-      values(rowOffset - 16) = -2.0;
-      values(rowOffset - 15) =  0.0;
-      values(rowOffset - 14) = 32.0;
-      values(rowOffset - 13) =  0.0;
-      values(rowOffset - 12) =  2.0;
-      values(rowOffset - 11) =  0.0;
-      values(rowOffset - 10) = -2.0;
-      values(rowOffset -  9) = -1.0;
-      values(rowOffset -  8) = -2.0;
-      values(rowOffset -  7) = -1.0;
-      values(rowOffset -  6) = -2.0;
-      values(rowOffset -  5) =  0.0;
-      values(rowOffset -  4) = -2.0;
-      values(rowOffset -  3) = -1.0;
-      values(rowOffset -  2) = -2.0;
-      values(rowOffset -  1) = -1.0;
+          // Fill values
+          if(dofIdx == dofRowIdx) {
+            values(rowOffset +  0*dofsPerNode + dofIdx) = -1.0;
+            values(rowOffset +  1*dofsPerNode + dofIdx) = -2.0;
+            values(rowOffset +  2*dofsPerNode + dofIdx) = -1.0;
+            values(rowOffset +  3*dofsPerNode + dofIdx) = -2.0;
+            values(rowOffset +  4*dofsPerNode + dofIdx) =  0.0;
+            values(rowOffset +  5*dofsPerNode + dofIdx) = -2.0;
+            values(rowOffset +  6*dofsPerNode + dofIdx) = -1.0;
+            values(rowOffset +  7*dofsPerNode + dofIdx) = -2.0;
+            values(rowOffset +  8*dofsPerNode + dofIdx) = -1.0;
+            values(rowOffset +  9*dofsPerNode + dofIdx) = -2.0;
+            values(rowOffset + 10*dofsPerNode + dofIdx) =  0.0;
+            values(rowOffset + 11*dofsPerNode + dofIdx) = -2.0;
+            values(rowOffset + 12*dofsPerNode + dofIdx) =  0.0;
+            values(rowOffset + 13*dofsPerNode + dofIdx) = 32.0;
+            values(rowOffset + 14*dofsPerNode + dofIdx) =  0.0;
+            values(rowOffset + 15*dofsPerNode + dofIdx) =  2.0;
+            values(rowOffset + 16*dofsPerNode + dofIdx) =  0.0;
+            values(rowOffset + 17*dofsPerNode + dofIdx) = -2.0;
+            values(rowOffset + 18*dofsPerNode + dofIdx) = -1.0;
+            values(rowOffset + 19*dofsPerNode + dofIdx) = -2.0;
+            values(rowOffset + 20*dofsPerNode + dofIdx) = -1.0;
+            values(rowOffset + 21*dofsPerNode + dofIdx) = -2.0;
+            values(rowOffset + 22*dofsPerNode + dofIdx) =  0.0;
+            values(rowOffset + 23*dofsPerNode + dofIdx) = -2.0;
+            values(rowOffset + 24*dofsPerNode + dofIdx) = -1.0;
+            values(rowOffset + 25*dofsPerNode + dofIdx) = -2.0;
+            values(rowOffset + 26*dofsPerNode + dofIdx) = -1.0;
+          } else {
+            values(rowOffset +  0*dofsPerNode + dofIdx) = 0.5;
+            values(rowOffset +  1*dofsPerNode + dofIdx) = 0.5;
+            values(rowOffset +  2*dofsPerNode + dofIdx) = 0.5;
+            values(rowOffset +  3*dofsPerNode + dofIdx) = 0.5;
+            values(rowOffset +  4*dofsPerNode + dofIdx) = 0.5;
+            values(rowOffset +  5*dofsPerNode + dofIdx) = 0.5;
+            values(rowOffset +  6*dofsPerNode + dofIdx) = 0.5;
+            values(rowOffset +  7*dofsPerNode + dofIdx) = 0.5;
+            values(rowOffset +  8*dofsPerNode + dofIdx) = 0.5;
+            values(rowOffset +  9*dofsPerNode + dofIdx) = 0.5;
+            values(rowOffset + 10*dofsPerNode + dofIdx) = 0.5;
+            values(rowOffset + 11*dofsPerNode + dofIdx) = 0.5;
+            values(rowOffset + 12*dofsPerNode + dofIdx) = 0.5;
+            values(rowOffset + 13*dofsPerNode + dofIdx) = 0.5;
+            values(rowOffset + 14*dofsPerNode + dofIdx) = 0.5;
+            values(rowOffset + 15*dofsPerNode + dofIdx) = 0.5;
+            values(rowOffset + 16*dofsPerNode + dofIdx) = 0.5;
+            values(rowOffset + 17*dofsPerNode + dofIdx) = 0.5;
+            values(rowOffset + 18*dofsPerNode + dofIdx) = 0.5;
+            values(rowOffset + 19*dofsPerNode + dofIdx) = 0.5;
+            values(rowOffset + 20*dofsPerNode + dofIdx) = 0.5;
+            values(rowOffset + 21*dofsPerNode + dofIdx) = 0.5;
+            values(rowOffset + 22*dofsPerNode + dofIdx) = 0.5;
+            values(rowOffset + 23*dofsPerNode + dofIdx) = 0.5;
+            values(rowOffset + 24*dofsPerNode + dofIdx) = 0.5;
+            values(rowOffset + 25*dofsPerNode + dofIdx) = 0.5;
+            values(rowOffset + 26*dofsPerNode + dofIdx) = 0.5;
+          }
+        }
+      }
     }
 
     KOKKOS_INLINE_FUNCTION
@@ -1818,52 +1874,81 @@ namespace Test {
         const ordinal_type k = idx / (ny - frontBC - backBC);
         const ordinal_type j = idx % (ny - frontBC - backBC);
         const ordinal_type i = 0;
-        const ordinal_type rowIdx = (k + bottomBC)*ny*nx + (j + frontBC)*nx + i;
+        const ordinal_type baseRowIdx = ((k + bottomBC)*ny*nx + (j + frontBC)*nx + i)*dofsPerNode;
+        const size_type baseRowOffset = (k*numEntriesPerGridPlane + bottomBC*numEntriesBottomPlane
+            + j*numEntriesPerGridRow + frontBC*numEntriesFrontRow)*dofsPerNode*dofsPerNode;
 
-        // Compute rowOffset
-        const size_type rowOffset = k*numEntriesPerGridPlane + bottomBC*numEntriesBottomPlane
-          + j*numEntriesPerGridRow + frontBC*numEntriesFrontRow + faceStencilLength;
-        rowmap(rowIdx + 1) = rowOffset;
+        ordinal_type rowIdx = 0;
+        size_type rowOffset = 0;
+        for(int dofRowIdx = 0; dofRowIdx < dofsPerNode; ++dofRowIdx) {
+          // Compute rowOffset
+          rowIdx = baseRowIdx + dofRowIdx;
+          rowOffset = baseRowOffset + faceStencilLength*dofsPerNode*dofRowIdx;
+          rowmap(rowIdx + 1) = rowOffset + faceStencilLength*dofsPerNode;
 
-	// Fill column indices
-	columns(rowOffset - 18) = rowIdx - ny*nx - nx;
-	columns(rowOffset - 17) = rowIdx - ny*nx - nx + 1;
-	columns(rowOffset - 16) = rowIdx - ny*nx;
-	columns(rowOffset - 15) = rowIdx - ny*nx + 1;
-	columns(rowOffset - 14) = rowIdx - ny*nx + nx;
-	columns(rowOffset - 13) = rowIdx - ny*nx + nx + 1;
-	columns(rowOffset - 12) = rowIdx - nx;
-	columns(rowOffset - 11) = rowIdx - nx + 1;
-	columns(rowOffset - 10) = rowIdx;
-	columns(rowOffset -  9) = rowIdx + 1;
-	columns(rowOffset -  8) = rowIdx + nx;
-	columns(rowOffset -  7) = rowIdx + nx + 1;
-	columns(rowOffset -  6) = rowIdx + nx*ny - nx;
-	columns(rowOffset -  5) = rowIdx + nx*ny - nx + 1;
-	columns(rowOffset -  4) = rowIdx + nx*ny;
-	columns(rowOffset -  3) = rowIdx + nx*ny + 1;
-	columns(rowOffset -  2) = rowIdx + nx*ny + nx;
-	columns(rowOffset -  1) = rowIdx + nx*ny + nx + 1;
+          // Fill column indices
+          for(int dofIdx = 0; dofIdx < dofsPerNode; ++dofIdx) {
+            columns(rowOffset +  0*dofsPerNode + dofIdx) = rowIdx - (ny*nx + nx);
+            columns(rowOffset +  1*dofsPerNode + dofIdx) = rowIdx - (ny*nx + nx - 1);
+            columns(rowOffset +  2*dofsPerNode + dofIdx) = rowIdx - ny*nx;
+            columns(rowOffset +  3*dofsPerNode + dofIdx) = rowIdx - (ny*nx - 1);
+            columns(rowOffset +  4*dofsPerNode + dofIdx) = rowIdx - (ny*nx - nx);
+            columns(rowOffset +  5*dofsPerNode + dofIdx) = rowIdx - (ny*nx - nx - 1);
+            columns(rowOffset +  6*dofsPerNode + dofIdx) = rowIdx - nx;
+            columns(rowOffset +  7*dofsPerNode + dofIdx) = rowIdx - (nx - 1);
+            columns(rowOffset +  8*dofsPerNode + dofIdx) = rowIdx;
+            columns(rowOffset +  9*dofsPerNode + dofIdx) = rowIdx + 1;
+            columns(rowOffset + 10*dofsPerNode + dofIdx) = rowIdx + nx;
+            columns(rowOffset + 11*dofsPerNode + dofIdx) = rowIdx + (nx + 1);
+            columns(rowOffset + 12*dofsPerNode + dofIdx) = rowIdx + (nx*ny - nx);
+            columns(rowOffset + 13*dofsPerNode + dofIdx) = rowIdx + (nx*ny - nx + 1);
+            columns(rowOffset + 14*dofsPerNode + dofIdx) = rowIdx + nx*ny;
+            columns(rowOffset + 15*dofsPerNode + dofIdx) = rowIdx + (nx*ny + 1);
+            columns(rowOffset + 16*dofsPerNode + dofIdx) = rowIdx + (nx*ny + nx);
+            columns(rowOffset + 17*dofsPerNode + dofIdx) = rowIdx + (nx*ny + nx + 1);
 
-	// Fill values
-	values(rowOffset - 18) = -1.0;
-	values(rowOffset - 17) = -1.0;
-	values(rowOffset - 16) =  0.0;
-	values(rowOffset - 15) = -2.0;
-	values(rowOffset - 14) = -1.0;
-	values(rowOffset - 13) = -1.0;
-	values(rowOffset - 12) =  0.0;
-	values(rowOffset - 11) = -2.0;
-	values(rowOffset - 10) = 16.0;
-	values(rowOffset -  9) =  0.0;
-	values(rowOffset -  8) =  0.0;
-	values(rowOffset -  7) = -2.0;
-	values(rowOffset -  6) = -1.0;
-	values(rowOffset -  5) = -1.0;
-	values(rowOffset -  4) =  0.0;
-	values(rowOffset -  3) = -2.0;
-	values(rowOffset -  2) = -1.0;
-	values(rowOffset -  1) = -1.0;
+            // Fill values
+            if(dofIdx == dofRowIdx) {
+              values(rowOffset +  0*dofsPerNode + dofIdx) = -1.0;
+              values(rowOffset +  1*dofsPerNode + dofIdx) = -1.0;
+              values(rowOffset +  2*dofsPerNode + dofIdx) =  0.0;
+              values(rowOffset +  3*dofsPerNode + dofIdx) = -2.0;
+              values(rowOffset +  4*dofsPerNode + dofIdx) = -1.0;
+              values(rowOffset +  5*dofsPerNode + dofIdx) = -1.0;
+              values(rowOffset +  6*dofsPerNode + dofIdx) =  0.0;
+              values(rowOffset +  7*dofsPerNode + dofIdx) = -2.0;
+              values(rowOffset +  8*dofsPerNode + dofIdx) = 16.0;
+              values(rowOffset +  9*dofsPerNode + dofIdx) =  0.0;
+              values(rowOffset + 10*dofsPerNode + dofIdx) =  0.0;
+              values(rowOffset + 11*dofsPerNode + dofIdx) = -2.0;
+              values(rowOffset + 12*dofsPerNode + dofIdx) = -1.0;
+              values(rowOffset + 13*dofsPerNode + dofIdx) = -1.0;
+              values(rowOffset + 14*dofsPerNode + dofIdx) =  0.0;
+              values(rowOffset + 15*dofsPerNode + dofIdx) = -2.0;
+              values(rowOffset + 16*dofsPerNode + dofIdx) = -1.0;
+              values(rowOffset + 17*dofsPerNode + dofIdx) = -1.0;
+            } else {
+              values(rowOffset +  0*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  1*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  2*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  3*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  4*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  5*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  6*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  7*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  8*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  9*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset + 10*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset + 11*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset + 12*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset + 13*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset + 14*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset + 15*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset + 16*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset + 17*dofsPerNode + dofIdx) = 0.5;
+            }
+          }
+        }
       }
 
       /********************/
@@ -1874,52 +1959,83 @@ namespace Test {
         const ordinal_type k = idx / (ny - frontBC - backBC);
         const ordinal_type j = idx % (ny - frontBC - backBC);
         const ordinal_type i   = nx - 1;
-        const ordinal_type rowIdx = (k + bottomBC)*ny*nx + (j + frontBC)*nx + i;
+        const ordinal_type baseRowIdx = ((k + bottomBC)*ny*nx + (j + frontBC)*nx + i)*dofsPerNode;
+        const size_type baseRowOffset = (k*numEntriesPerGridPlane + bottomBC*numEntriesBottomPlane
+                                         + (j + 1)*numEntriesPerGridRow
+                                         + frontBC*numEntriesFrontRow
+                                         - faceStencilLength)*dofsPerNode*dofsPerNode;
 
-        // Compute rowOffset
-        const size_type rowOffset = k*numEntriesPerGridPlane + bottomBC*numEntriesBottomPlane
-          + (j + 1)*numEntriesPerGridRow + frontBC*numEntriesFrontRow;
-        rowmap(rowIdx + 1) = rowOffset;
+        ordinal_type rowIdx = 0;
+        size_type rowOffset = 0;
+        for(int dofRowIdx = 0; dofRowIdx < dofsPerNode; ++dofRowIdx) {
+          // Compute rowOffset
+          rowIdx = baseRowIdx + dofRowIdx;
+          rowOffset = baseRowOffset + faceStencilLength*dofsPerNode*dofRowIdx;
+          rowmap(rowIdx + 1) = rowOffset + faceStencilLength*dofsPerNode;
 
-	// Fill column indices
-	columns(rowOffset - 18) = rowIdx - ny*nx - nx - 1;
-	columns(rowOffset - 17) = rowIdx - ny*nx - nx;
-	columns(rowOffset - 16) = rowIdx - ny*nx - 1;
-	columns(rowOffset - 15) = rowIdx - ny*nx;
-	columns(rowOffset - 14) = rowIdx - ny*nx + nx - 1;
-	columns(rowOffset - 13) = rowIdx - ny*nx + nx;
-	columns(rowOffset - 12) = rowIdx - nx - 1;
-	columns(rowOffset - 11) = rowIdx - nx;
-	columns(rowOffset - 10) = rowIdx - 1;
-	columns(rowOffset -  9) = rowIdx;
-	columns(rowOffset -  8) = rowIdx + nx - 1;
-	columns(rowOffset -  7) = rowIdx + nx;
-	columns(rowOffset -  6) = rowIdx + nx*ny - nx - 1;
-	columns(rowOffset -  5) = rowIdx + nx*ny - nx;
-	columns(rowOffset -  4) = rowIdx + nx*ny - 1;
-	columns(rowOffset -  3) = rowIdx + nx*ny;
-	columns(rowOffset -  2) = rowIdx + nx*ny + nx - 1;
-	columns(rowOffset -  1) = rowIdx + nx*ny + nx;
+          // Fill column indices
+          for(int dofIdx = 0; dofIdx < dofsPerNode; ++dofIdx) {
+            columns(rowOffset +  0*dofsPerNode + dofIdx) = rowIdx - ny*nx - nx - 1;
+            columns(rowOffset +  1*dofsPerNode + dofIdx) = rowIdx - ny*nx - nx;
+            columns(rowOffset +  2*dofsPerNode + dofIdx) = rowIdx - ny*nx - 1;
+            columns(rowOffset +  3*dofsPerNode + dofIdx) = rowIdx - ny*nx;
+            columns(rowOffset +  4*dofsPerNode + dofIdx) = rowIdx - ny*nx + nx - 1;
+            columns(rowOffset +  5*dofsPerNode + dofIdx) = rowIdx - ny*nx + nx;
+            columns(rowOffset +  6*dofsPerNode + dofIdx) = rowIdx - nx - 1;
+            columns(rowOffset +  7*dofsPerNode + dofIdx) = rowIdx - nx;
+            columns(rowOffset +  8*dofsPerNode + dofIdx) = rowIdx - 1;
+            columns(rowOffset +  9*dofsPerNode + dofIdx) = rowIdx;
+            columns(rowOffset + 10*dofsPerNode + dofIdx) = rowIdx + nx - 1;
+            columns(rowOffset + 11*dofsPerNode + dofIdx) = rowIdx + nx;
+            columns(rowOffset + 12*dofsPerNode + dofIdx) = rowIdx + nx*ny - nx - 1;
+            columns(rowOffset + 13*dofsPerNode + dofIdx) = rowIdx + nx*ny - nx;
+            columns(rowOffset + 14*dofsPerNode + dofIdx) = rowIdx + nx*ny - 1;
+            columns(rowOffset + 15*dofsPerNode + dofIdx) = rowIdx + nx*ny;
+            columns(rowOffset + 16*dofsPerNode + dofIdx) = rowIdx + nx*ny + nx - 1;
+            columns(rowOffset + 17*dofsPerNode + dofIdx) = rowIdx + nx*ny + nx;
 
-	// Fill values
-	values(rowOffset - 18) = -1.0;
-	values(rowOffset - 17) = -1.0;
-	values(rowOffset - 16) = -2.0;
-	values(rowOffset - 15) =  0.0;
-	values(rowOffset - 14) = -1.0;
-	values(rowOffset - 13) = -1.0;
-	values(rowOffset - 12) = -2.0;
-	values(rowOffset - 11) =  0.0;
-	values(rowOffset - 10) =  0.0;
-	values(rowOffset -  9) = 16.0;
-	values(rowOffset -  8) = -2.0;
-	values(rowOffset -  7) =  0.0;
-	values(rowOffset -  6) = -1.0;
-	values(rowOffset -  5) = -1.0;
-	values(rowOffset -  4) = -2.0;
-	values(rowOffset -  3) =  0.0;
-	values(rowOffset -  2) = -1.0;
-	values(rowOffset -  1) = -1.0;
+            // Fill values
+            if(dofIdx == dofRowIdx) {
+              values(rowOffset +  0*dofsPerNode + dofIdx) = -1.0;
+              values(rowOffset +  1*dofsPerNode + dofIdx) = -1.0;
+              values(rowOffset +  2*dofsPerNode + dofIdx) = -2.0;
+              values(rowOffset +  3*dofsPerNode + dofIdx) =  0.0;
+              values(rowOffset +  4*dofsPerNode + dofIdx) = -1.0;
+              values(rowOffset +  5*dofsPerNode + dofIdx) = -1.0;
+              values(rowOffset +  6*dofsPerNode + dofIdx) = -2.0;
+              values(rowOffset +  7*dofsPerNode + dofIdx) =  0.0;
+              values(rowOffset +  8*dofsPerNode + dofIdx) =  0.0;
+              values(rowOffset +  9*dofsPerNode + dofIdx) = 16.0;
+              values(rowOffset + 10*dofsPerNode + dofIdx) = -2.0;
+              values(rowOffset + 11*dofsPerNode + dofIdx) =  0.0;
+              values(rowOffset + 12*dofsPerNode + dofIdx) = -1.0;
+              values(rowOffset + 13*dofsPerNode + dofIdx) = -1.0;
+              values(rowOffset + 14*dofsPerNode + dofIdx) = -2.0;
+              values(rowOffset + 15*dofsPerNode + dofIdx) =  0.0;
+              values(rowOffset + 16*dofsPerNode + dofIdx) = -1.0;
+              values(rowOffset + 17*dofsPerNode + dofIdx) = -1.0;
+            } else {
+              values(rowOffset +  0*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  1*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  2*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  3*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  4*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  5*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  6*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  7*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  8*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  9*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset + 10*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset + 11*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset + 12*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset + 13*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset + 14*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset + 15*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset + 16*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset + 17*dofsPerNode + dofIdx) = 0.5;
+            }
+          }
+        }
       }
     }
 
@@ -1932,52 +2048,82 @@ namespace Test {
         // Compute row index
         const ordinal_type k = idx / (nx - leftBC - rightBC);
         const ordinal_type i = idx % (nx - leftBC - rightBC);
-        const ordinal_type rowIdx = (k + bottomBC)*ny*nx + i + leftBC;
+        const ordinal_type baseRowIdx = ((k + bottomBC)*ny*nx + i + leftBC)*dofsPerNode;
+        const size_type baseRowOffset = (k*numEntriesPerGridPlane + bottomBC*numEntriesBottomPlane
+                                         + i*faceStencilLength
+                                         + leftBC*edgeStencilLength)*dofsPerNode*dofsPerNode;
 
-        // Compute rowOffset
-        const size_type rowOffset = k*numEntriesPerGridPlane + bottomBC*numEntriesBottomPlane
-          + (i + 1)*faceStencilLength + leftBC*edgeStencilLength;
-        rowmap(rowIdx + 1) = rowOffset;
+        ordinal_type rowIdx = 0;
+        size_type rowOffset = 0;
+        for(int dofRowIdx = 0; dofRowIdx < dofsPerNode; ++dofRowIdx) {
+          // Compute rowOffset
+          rowIdx = baseRowIdx + dofRowIdx;
+          rowOffset = baseRowOffset + faceStencilLength*dofsPerNode*dofRowIdx;
+          rowmap(rowIdx + 1) = rowOffset + faceStencilLength*dofsPerNode;
 
-	// Fill column indices
-	columns(rowOffset - 18) = rowIdx - ny*nx - 1;
-	columns(rowOffset - 17) = rowIdx - ny*nx;
-	columns(rowOffset - 16) = rowIdx - ny*nx + 1;
-	columns(rowOffset - 15) = rowIdx - ny*nx + nx - 1;
-	columns(rowOffset - 14) = rowIdx - ny*nx + nx;
-	columns(rowOffset - 13) = rowIdx - ny*nx + nx + 1;
-	columns(rowOffset - 12) = rowIdx - 1;
-	columns(rowOffset - 11) = rowIdx;
-	columns(rowOffset - 10) = rowIdx + 1;
-	columns(rowOffset -  9) = rowIdx + nx - 1;
-	columns(rowOffset -  8) = rowIdx + nx;
-	columns(rowOffset -  7) = rowIdx + nx + 1;
-	columns(rowOffset -  6) = rowIdx + nx*ny - 1;
-	columns(rowOffset -  5) = rowIdx + nx*ny;
-	columns(rowOffset -  4) = rowIdx + nx*ny + 1;
-	columns(rowOffset -  3) = rowIdx + nx*ny + nx - 1;
-	columns(rowOffset -  2) = rowIdx + nx*ny + nx;
-	columns(rowOffset -  1) = rowIdx + nx*ny + nx + 1;
+          // Fill column indices
+          for(int dofIdx = 0; dofIdx < dofsPerNode; ++dofIdx) {
+            columns(rowOffset +  0*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - (ny*nx + 1)*dofsPerNode;
+            columns(rowOffset +  1*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - ny*nx*dofsPerNode;
+            columns(rowOffset +  2*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - (ny*nx - 1)*dofsPerNode;
+            columns(rowOffset +  3*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - (ny*nx - nx + 1)*dofsPerNode;
+            columns(rowOffset +  4*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - (ny*nx - nx)*dofsPerNode;
+            columns(rowOffset +  5*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - (ny*nx - nx - 1)*dofsPerNode;
+            columns(rowOffset +  6*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - 1*dofsPerNode;
+            columns(rowOffset +  7*dofsPerNode + dofIdx) = baseRowIdx + dofIdx;
+            columns(rowOffset +  8*dofsPerNode + dofIdx) = baseRowIdx + dofIdx + 1*dofsPerNode;
+            columns(rowOffset +  9*dofsPerNode + dofIdx) = baseRowIdx + dofIdx + (nx - 1)*dofsPerNode;
+            columns(rowOffset + 10*dofsPerNode + dofIdx) = baseRowIdx + dofIdx + nx*dofsPerNode;
+            columns(rowOffset + 11*dofsPerNode + dofIdx) = baseRowIdx + dofIdx + (nx + 1)*dofsPerNode;
+            columns(rowOffset + 12*dofsPerNode + dofIdx) = baseRowIdx + dofIdx + (nx*ny - 1)*dofsPerNode;
+            columns(rowOffset + 13*dofsPerNode + dofIdx) = baseRowIdx + dofIdx + nx*ny*dofsPerNode;
+            columns(rowOffset + 14*dofsPerNode + dofIdx) = baseRowIdx + dofIdx + (nx*ny + 1)*dofsPerNode;
+            columns(rowOffset + 15*dofsPerNode + dofIdx) = baseRowIdx + dofIdx + (nx*ny + nx - 1)*dofsPerNode;
+            columns(rowOffset + 16*dofsPerNode + dofIdx) = baseRowIdx + dofIdx + (nx*ny + nx)*dofsPerNode;
+            columns(rowOffset + 17*dofsPerNode + dofIdx) = baseRowIdx + dofIdx + (nx*ny + nx + 1)*dofsPerNode;
 
-	// Fill values
-	values(rowOffset - 18) = -1.0;
-	values(rowOffset - 17) =  0.0;
-	values(rowOffset - 16) = -1.0;
-	values(rowOffset - 15) = -1.0;
-	values(rowOffset - 14) = -2.0;
-	values(rowOffset - 13) = -1.0;
-	values(rowOffset - 12) =  0.0;
-	values(rowOffset - 11) = 16.0;
-	values(rowOffset - 10) =  0.0;
-	values(rowOffset -  9) = -2.0;
-	values(rowOffset -  8) =  0.0;
-	values(rowOffset -  7) = -2.0;
-	values(rowOffset -  6) = -1.0;
-	values(rowOffset -  5) =  0.0;
-	values(rowOffset -  4) = -1.0;
-	values(rowOffset -  3) = -1.0;
-	values(rowOffset -  2) = -2.0;
-	values(rowOffset -  1) = -1.0;
+            // Fill values
+            if(dofIdx == dofRowIdx) {
+              values(rowOffset +  0*dofsPerNode + dofIdx) = -1.0;
+              values(rowOffset +  1*dofsPerNode + dofIdx) =  0.0;
+              values(rowOffset +  2*dofsPerNode + dofIdx) = -1.0;
+              values(rowOffset +  3*dofsPerNode + dofIdx) = -1.0;
+              values(rowOffset +  4*dofsPerNode + dofIdx) = -2.0;
+              values(rowOffset +  5*dofsPerNode + dofIdx) = -1.0;
+              values(rowOffset +  6*dofsPerNode + dofIdx) =  0.0;
+              values(rowOffset +  7*dofsPerNode + dofIdx) = 16.0;
+              values(rowOffset +  8*dofsPerNode + dofIdx) =  0.0;
+              values(rowOffset +  9*dofsPerNode + dofIdx) = -2.0;
+              values(rowOffset + 10*dofsPerNode + dofIdx) =  0.0;
+              values(rowOffset + 11*dofsPerNode + dofIdx) = -2.0;
+              values(rowOffset + 12*dofsPerNode + dofIdx) = -1.0;
+              values(rowOffset + 13*dofsPerNode + dofIdx) =  0.0;
+              values(rowOffset + 14*dofsPerNode + dofIdx) = -1.0;
+              values(rowOffset + 15*dofsPerNode + dofIdx) = -1.0;
+              values(rowOffset + 16*dofsPerNode + dofIdx) = -2.0;
+              values(rowOffset + 17*dofsPerNode + dofIdx) = -1.0;
+            } else {
+              values(rowOffset +  0*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  1*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  2*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  3*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  4*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  5*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  6*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  7*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  8*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  9*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset + 10*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset + 11*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset + 12*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset + 13*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset + 14*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset + 15*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset + 16*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset + 17*dofsPerNode + dofIdx) = 0.5;
+            }
+          }
+        }
       }
 
       /********************/
@@ -1988,53 +2134,82 @@ namespace Test {
         const ordinal_type k = idx / (nx - leftBC - rightBC);
         const ordinal_type j = ny - 1 - frontBC;
         const ordinal_type i = idx % (nx - leftBC - rightBC);
-        const ordinal_type rowIdx = (k + bottomBC)*ny*nx + (j + frontBC)*nx + i + leftBC;
+        const ordinal_type baseRowIdx = ((k + bottomBC)*ny*nx + (j + frontBC)*nx + i + leftBC)*dofsPerNode;
+        const size_type baseRowOffset = (k*numEntriesPerGridPlane + bottomBC*numEntriesBottomPlane
+                                         + j*numEntriesPerGridRow + frontBC*numEntriesFrontRow
+                                         + i*faceStencilLength + leftBC*edgeStencilLength)*dofsPerNode*dofsPerNode;
 
-        // Compute rowOffset
-        const size_type rowOffset = k*numEntriesPerGridPlane + bottomBC*numEntriesBottomPlane
-          + j*numEntriesPerGridRow + frontBC*numEntriesFrontRow
-          + (i + 1)*faceStencilLength + leftBC*edgeStencilLength;
-        rowmap(rowIdx + 1) = rowOffset;
+        ordinal_type rowIdx = 0;
+        size_type rowOffset = 0;
+        for(int dofRowIdx = 0; dofRowIdx < dofsPerNode; ++dofRowIdx) {
+          // Compute rowOffset
+          rowIdx = baseRowIdx + dofRowIdx;
+          rowOffset = baseRowOffset + faceStencilLength*dofsPerNode*dofRowIdx;
+          rowmap(rowIdx + 1) = rowOffset + faceStencilLength*dofsPerNode;
 
-	// Fill column indices
-	columns(rowOffset - 18) = rowIdx - ny*nx - nx - 1;
-	columns(rowOffset - 17) = rowIdx - ny*nx - nx;
-	columns(rowOffset - 16) = rowIdx - ny*nx - 1;
-	columns(rowOffset - 15) = rowIdx - ny*nx - 1;
-	columns(rowOffset - 14) = rowIdx - ny*nx;
-	columns(rowOffset - 13) = rowIdx - ny*nx + 1;
-	columns(rowOffset - 12) = rowIdx - nx - 1;
-	columns(rowOffset - 11) = rowIdx - nx;
-	columns(rowOffset - 10) = rowIdx - nx + 1;
-	columns(rowOffset -  9) = rowIdx - 1;
-	columns(rowOffset -  8) = rowIdx;
-	columns(rowOffset -  7) = rowIdx + 1;
-	columns(rowOffset -  6) = rowIdx + nx*ny - nx - 1;
-	columns(rowOffset -  5) = rowIdx + nx*ny - nx;
-	columns(rowOffset -  4) = rowIdx + nx*ny - nx + 1;
-	columns(rowOffset -  3) = rowIdx + nx*ny - 1;
-	columns(rowOffset -  2) = rowIdx + nx*ny;
-	columns(rowOffset -  1) = rowIdx + nx*ny + 1;
+          // Fill column indices
+          for(int dofIdx = 0; dofIdx < dofsPerNode; ++dofIdx) {
+            columns(rowOffset +  0*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - (ny*nx + nx + 1)*dofsPerNode;
+            columns(rowOffset +  1*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - (ny*nx + nx)*dofsPerNode;
+            columns(rowOffset +  2*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - (ny*nx + nx - 1)*dofsPerNode;
+            columns(rowOffset +  3*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - (ny*nx + 1)*dofsPerNode;
+            columns(rowOffset +  4*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - ny*nx*dofsPerNode;
+            columns(rowOffset +  5*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - (ny*nx - 1)*dofsPerNode;
+            columns(rowOffset +  6*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - (nx + 1)*dofsPerNode;
+            columns(rowOffset +  7*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - nx*dofsPerNode;
+            columns(rowOffset +  8*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - (nx - 1)*dofsPerNode;
+            columns(rowOffset +  9*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - 1*dofsPerNode;
+            columns(rowOffset + 10*dofsPerNode + dofIdx) = baseRowIdx + dofIdx;
+            columns(rowOffset + 11*dofsPerNode + dofIdx) = baseRowIdx + dofIdx + 1*dofsPerNode;
+            columns(rowOffset + 12*dofsPerNode + dofIdx) = baseRowIdx + dofIdx + (nx*ny - nx - 1)*dofsPerNode;
+            columns(rowOffset + 13*dofsPerNode + dofIdx) = baseRowIdx + dofIdx + (nx*ny - nx)*dofsPerNode;
+            columns(rowOffset + 14*dofsPerNode + dofIdx) = baseRowIdx + dofIdx + (nx*ny - nx + 1)*dofsPerNode;
+            columns(rowOffset + 15*dofsPerNode + dofIdx) = baseRowIdx + dofIdx + (nx*ny - 1)*dofsPerNode;
+            columns(rowOffset + 16*dofsPerNode + dofIdx) = baseRowIdx + dofIdx + nx*ny*dofsPerNode;
+            columns(rowOffset + 17*dofsPerNode + dofIdx) = baseRowIdx + dofIdx + (nx*ny + 1)*dofsPerNode;
 
-	// Fill values
-	values(rowOffset - 18) = -1.0;
-	values(rowOffset - 17) = -2.0;
-	values(rowOffset - 16) = -1.0;
-	values(rowOffset - 15) = -1.0;
-	values(rowOffset - 14) =  0.0;
-	values(rowOffset - 13) = -1.0;
-	values(rowOffset - 12) = -2.0;
-	values(rowOffset - 11) =  0.0;
-	values(rowOffset - 10) = -2.0;
-	values(rowOffset -  9) =  0.0;
-	values(rowOffset -  8) = 16.0;
-	values(rowOffset -  7) =  0.0;
-	values(rowOffset -  6) = -1.0;
-	values(rowOffset -  5) = -2.0;
-	values(rowOffset -  4) = -1.0;
-	values(rowOffset -  3) = -1.0;
-	values(rowOffset -  2) =  0.0;
-	values(rowOffset -  1) = -1.0;
+            // Fill values
+            if(dofIdx == dofRowIdx) {
+              values(rowOffset +  0*dofsPerNode + dofIdx) = -1.0;
+              values(rowOffset +  1*dofsPerNode + dofIdx) = -2.0;
+              values(rowOffset +  2*dofsPerNode + dofIdx) = -1.0;
+              values(rowOffset +  3*dofsPerNode + dofIdx) = -1.0;
+              values(rowOffset +  4*dofsPerNode + dofIdx) =  0.0;
+              values(rowOffset +  5*dofsPerNode + dofIdx) = -1.0;
+              values(rowOffset +  6*dofsPerNode + dofIdx) = -2.0;
+              values(rowOffset +  7*dofsPerNode + dofIdx) =  0.0;
+              values(rowOffset +  8*dofsPerNode + dofIdx) = -2.0;
+              values(rowOffset +  9*dofsPerNode + dofIdx) =  0.0;
+              values(rowOffset + 10*dofsPerNode + dofIdx) = 16.0;
+              values(rowOffset + 11*dofsPerNode + dofIdx) =  0.0;
+              values(rowOffset + 12*dofsPerNode + dofIdx) = -1.0;
+              values(rowOffset + 13*dofsPerNode + dofIdx) = -2.0;
+              values(rowOffset + 14*dofsPerNode + dofIdx) = -1.0;
+              values(rowOffset + 15*dofsPerNode + dofIdx) = -1.0;
+              values(rowOffset + 16*dofsPerNode + dofIdx) =  0.0;
+              values(rowOffset + 17*dofsPerNode + dofIdx) = -1.0;
+            } else {
+              values(rowOffset +  0*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  1*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  2*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  3*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  4*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  5*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  6*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  7*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  8*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  9*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset + 10*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset + 11*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset + 12*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset + 13*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset + 14*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset + 15*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset + 16*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset + 17*dofsPerNode + dofIdx) = 0.5;
+            }
+          }
+        }
       }
     }
 
@@ -2047,52 +2222,82 @@ namespace Test {
         // Compute row index
         const ordinal_type j = idx / (nx - leftBC - rightBC);
         const ordinal_type i = idx % (nx - leftBC - rightBC);
-        const ordinal_type rowIdx = (j + frontBC)*nx + i + leftBC;
+        const ordinal_type baseRowIdx = ((j + frontBC)*nx + i + leftBC)*dofsPerNode;
+        const size_type baseRowOffset = (j*numEntriesFrontRow + frontBC*numEntriesBottomFrontRow
+                                         + i*faceStencilLength
+                                         + leftBC*edgeStencilLength)*dofsPerNode*dofsPerNode;
 
-        // Compute rowOffset
-        const size_type rowOffset = j*numEntriesFrontRow + frontBC*numEntriesBottomFrontRow
-          + (i + 1)*faceStencilLength + leftBC*edgeStencilLength;
-        rowmap(rowIdx + 1) = rowOffset;
+        ordinal_type rowIdx = 0;
+        size_type rowOffset = 0;
+        for(int dofRowIdx = 0; dofRowIdx < dofsPerNode; ++dofRowIdx) {
+          // Compute rowOffset
+          rowIdx = baseRowIdx + dofRowIdx;
+          rowOffset = baseRowOffset + faceStencilLength*dofsPerNode*dofRowIdx;
+          rowmap(rowIdx + 1) = rowOffset + faceStencilLength*dofsPerNode;
 
-	// Fill column indices
-	columns(rowOffset - 18) = rowIdx - nx - 1;
-	columns(rowOffset - 17) = rowIdx - nx;
-	columns(rowOffset - 16) = rowIdx - nx + 1;
-	columns(rowOffset - 15) = rowIdx - 1;
-	columns(rowOffset - 14) = rowIdx;
-	columns(rowOffset - 13) = rowIdx + 1;
-	columns(rowOffset - 12) = rowIdx + nx - 1;
-	columns(rowOffset - 11) = rowIdx + nx;
-	columns(rowOffset - 10) = rowIdx + nx + 1;
-	columns(rowOffset -  9) = rowIdx + nx*ny - nx - 1;
-	columns(rowOffset -  8) = rowIdx + nx*ny - nx;
-	columns(rowOffset -  7) = rowIdx + nx*ny - nx + 1;
-	columns(rowOffset -  6) = rowIdx + nx*ny - 1;
-	columns(rowOffset -  5) = rowIdx + nx*ny;
-	columns(rowOffset -  4) = rowIdx + nx*ny + 1;
-	columns(rowOffset -  3) = rowIdx + nx*ny + nx - 1;
-	columns(rowOffset -  2) = rowIdx + nx*ny + nx;
-	columns(rowOffset -  1) = rowIdx + nx*ny + nx + 1;
+          // Fill column indices
+          for(int dofIdx = 0; dofIdx < dofsPerNode; ++dofIdx) {
+            columns(rowOffset +  0*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - (nx + 1)*dofsPerNode;
+            columns(rowOffset +  1*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - nx*dofsPerNode;
+            columns(rowOffset +  2*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - (nx - 1)*dofsPerNode;
+            columns(rowOffset +  3*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - 1*dofsPerNode;
+            columns(rowOffset +  4*dofsPerNode + dofIdx) = baseRowIdx + dofIdx;
+            columns(rowOffset +  5*dofsPerNode + dofIdx) = baseRowIdx + dofIdx + 1*dofsPerNode;
+            columns(rowOffset +  6*dofsPerNode + dofIdx) = baseRowIdx + dofIdx + (nx - 1)*dofsPerNode;
+            columns(rowOffset +  7*dofsPerNode + dofIdx) = baseRowIdx + dofIdx + nx*dofsPerNode;
+            columns(rowOffset +  8*dofsPerNode + dofIdx) = baseRowIdx + dofIdx + (nx + 1)*dofsPerNode;
+            columns(rowOffset +  9*dofsPerNode + dofIdx) = baseRowIdx + dofIdx + (nx*ny - nx - 1)*dofsPerNode;
+            columns(rowOffset + 10*dofsPerNode + dofIdx) = baseRowIdx + dofIdx + (nx*ny - nx)*dofsPerNode;
+            columns(rowOffset + 11*dofsPerNode + dofIdx) = baseRowIdx + dofIdx + (nx*ny - nx + 1)*dofsPerNode;
+            columns(rowOffset + 12*dofsPerNode + dofIdx) = baseRowIdx + dofIdx + (nx*ny - 1)*dofsPerNode;
+            columns(rowOffset + 13*dofsPerNode + dofIdx) = baseRowIdx + dofIdx + nx*ny*dofsPerNode;
+            columns(rowOffset + 14*dofsPerNode + dofIdx) = baseRowIdx + dofIdx + (nx*ny + 1)*dofsPerNode;
+            columns(rowOffset + 15*dofsPerNode + dofIdx) = baseRowIdx + dofIdx + (nx*ny + nx - 1)*dofsPerNode;
+            columns(rowOffset + 16*dofsPerNode + dofIdx) = baseRowIdx + dofIdx + (nx*ny + nx)*dofsPerNode;
+            columns(rowOffset + 17*dofsPerNode + dofIdx) = baseRowIdx + dofIdx + (nx*ny + nx + 1)*dofsPerNode;
 
-	// Fill values
-	values(rowOffset - 18) = -1.0;
-	values(rowOffset - 17) =  0.0;
-	values(rowOffset - 16) = -1.0;
-	values(rowOffset - 15) =  0.0;
-	values(rowOffset - 14) = 16.0;
-	values(rowOffset - 13) =  0.0;
-	values(rowOffset - 12) = -1.0;
-	values(rowOffset - 11) =  0.0;
-	values(rowOffset - 10) = -1.0;
-	values(rowOffset -  9) = -1.0;
-	values(rowOffset -  8) = -2.0;
-	values(rowOffset -  7) = -1.0;
-	values(rowOffset -  6) = -2.0;
-	values(rowOffset -  5) =  0.0;
-	values(rowOffset -  4) = -2.0;
-	values(rowOffset -  3) = -1.0;
-	values(rowOffset -  2) = -2.0;
-	values(rowOffset -  1) = -1.0;
+            // Fill values
+            if(dofIdx == dofRowIdx) {
+              values(rowOffset +  0*dofsPerNode + dofIdx) = -1.0;
+              values(rowOffset +  1*dofsPerNode + dofIdx) =  0.0;
+              values(rowOffset +  2*dofsPerNode + dofIdx) = -1.0;
+              values(rowOffset +  3*dofsPerNode + dofIdx) =  0.0;
+              values(rowOffset +  4*dofsPerNode + dofIdx) = 16.0;
+              values(rowOffset +  5*dofsPerNode + dofIdx) =  0.0;
+              values(rowOffset +  6*dofsPerNode + dofIdx) = -1.0;
+              values(rowOffset +  7*dofsPerNode + dofIdx) =  0.0;
+              values(rowOffset +  8*dofsPerNode + dofIdx) = -1.0;
+              values(rowOffset +  9*dofsPerNode + dofIdx) = -1.0;
+              values(rowOffset + 10*dofsPerNode + dofIdx) = -2.0;
+              values(rowOffset + 11*dofsPerNode + dofIdx) = -1.0;
+              values(rowOffset + 12*dofsPerNode + dofIdx) = -2.0;
+              values(rowOffset + 13*dofsPerNode + dofIdx) =  0.0;
+              values(rowOffset + 14*dofsPerNode + dofIdx) = -2.0;
+              values(rowOffset + 15*dofsPerNode + dofIdx) = -1.0;
+              values(rowOffset + 16*dofsPerNode + dofIdx) = -2.0;
+              values(rowOffset + 17*dofsPerNode + dofIdx) = -1.0;
+            } else {
+              values(rowOffset +  0*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  1*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  2*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  3*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  4*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  5*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  6*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  7*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  8*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  9*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset + 10*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset + 11*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset + 12*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset + 13*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset + 14*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset + 15*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset + 16*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset + 17*dofsPerNode + dofIdx) = 0.5;
+            }
+          }
+        }
       }
 
       /********************/
@@ -2103,53 +2308,83 @@ namespace Test {
         const ordinal_type k = nz - bottomBC - 1;
         const ordinal_type j = idx / (nx - leftBC - rightBC);
         const ordinal_type i = idx % (nx - leftBC - rightBC);
-        const ordinal_type rowIdx = (k + bottomBC)*ny*nx + (j + frontBC)*nx + i + leftBC;
+        const ordinal_type baseRowIdx = ((k + bottomBC)*ny*nx + (j + frontBC)*nx
+                                         + i + leftBC)*dofsPerNode;
+        const size_type baseRowOffset = (k*numEntriesPerGridPlane + bottomBC*numEntriesBottomPlane
+                                         + j*numEntriesFrontRow + frontBC*numEntriesBottomFrontRow
+                                         + i*faceStencilLength + leftBC*edgeStencilLength)*dofsPerNode*dofsPerNode;
 
-        // Compute rowOffset
-        const size_type rowOffset = k*numEntriesPerGridPlane + bottomBC*numEntriesBottomPlane
-          + j*numEntriesFrontRow + frontBC*numEntriesBottomFrontRow
-          + (i + 1)*faceStencilLength + leftBC*edgeStencilLength;
-        rowmap(rowIdx + 1) = rowOffset;
+        ordinal_type rowIdx = 0;
+        size_type rowOffset = 0;
+        for(int dofRowIdx = 0; dofRowIdx < dofsPerNode; ++dofRowIdx) {
+          // Compute rowOffset
+          rowIdx = baseRowIdx + dofRowIdx;
+          rowOffset = baseRowOffset + faceStencilLength*dofsPerNode*dofRowIdx;
+          rowmap(rowIdx + 1) = rowOffset + faceStencilLength*dofsPerNode;
 
-	// Fill column indices
-	columns(rowOffset - 18) = rowIdx - nx*ny - nx - 1;
-	columns(rowOffset - 17) = rowIdx - nx*ny - nx;
-	columns(rowOffset - 16) = rowIdx - nx*ny - nx + 1;
-	columns(rowOffset - 15) = rowIdx - nx*ny - 1;
-	columns(rowOffset - 14) = rowIdx - nx*ny;
-	columns(rowOffset - 13) = rowIdx - nx*ny + 1;
-	columns(rowOffset - 12) = rowIdx - nx*ny + nx - 1;
-	columns(rowOffset - 11) = rowIdx - nx*ny + nx;
-	columns(rowOffset - 10) = rowIdx - nx*ny + nx + 1;
-	columns(rowOffset -  9) = rowIdx - nx - 1;
-	columns(rowOffset -  8) = rowIdx - nx;
-	columns(rowOffset -  7) = rowIdx - nx + 1;
-	columns(rowOffset -  6) = rowIdx - 1;
-	columns(rowOffset -  5) = rowIdx;
-	columns(rowOffset -  4) = rowIdx + 1;
-	columns(rowOffset -  3) = rowIdx + nx - 1;
-	columns(rowOffset -  2) = rowIdx + nx;
-	columns(rowOffset -  1) = rowIdx + nx + 1;
+          // Fill column indices
+          for(int dofIdx = 0; dofIdx < dofsPerNode; ++dofIdx) {
+            columns(rowOffset +  0*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - (nx*ny + nx + 1)*dofsPerNode;
+            columns(rowOffset +  1*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - (nx*ny + nx)*dofsPerNode;
+            columns(rowOffset +  2*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - (nx*ny + nx - 1)*dofsPerNode;
+            columns(rowOffset +  3*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - (nx*ny + 1)*dofsPerNode;
+            columns(rowOffset +  4*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - nx*ny*dofsPerNode;
+            columns(rowOffset +  5*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - (nx*ny - 1)*dofsPerNode;
+            columns(rowOffset +  6*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - (nx*ny - nx + 1)*dofsPerNode;
+            columns(rowOffset +  7*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - (nx*ny - nx)*dofsPerNode;
+            columns(rowOffset +  8*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - (nx*ny - nx - 1)*dofsPerNode;
+            columns(rowOffset +  9*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - (nx + 1)*dofsPerNode;
+            columns(rowOffset + 10*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - nx*dofsPerNode;
+            columns(rowOffset + 11*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - (nx - 1)*dofsPerNode;
+            columns(rowOffset + 12*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - 1*dofsPerNode;
+            columns(rowOffset + 13*dofsPerNode + dofIdx) = baseRowIdx + dofIdx;
+            columns(rowOffset + 14*dofsPerNode + dofIdx) = baseRowIdx + dofIdx + 1*dofsPerNode;
+            columns(rowOffset + 15*dofsPerNode + dofIdx) = baseRowIdx + dofIdx + (nx - 1)*dofsPerNode;
+            columns(rowOffset + 16*dofsPerNode + dofIdx) = baseRowIdx + dofIdx + nx*dofsPerNode;
+            columns(rowOffset + 17*dofsPerNode + dofIdx) = baseRowIdx + dofIdx + (nx + 1)*dofsPerNode;
 
-	// Fill values
-	values(rowOffset - 18) = -1.0;
-	values(rowOffset - 17) = -2.0;
-	values(rowOffset - 16) = -1.0;
-	values(rowOffset - 15) = -2.0;
-	values(rowOffset - 14) =  0.0;
-	values(rowOffset - 13) = -2.0;
-	values(rowOffset - 12) = -1.0;
-	values(rowOffset - 11) = -2.0;
-	values(rowOffset - 10) = -1.0;
-	values(rowOffset -  9) = -1.0;
-	values(rowOffset -  8) =  0.0;
-	values(rowOffset -  7) = -1.0;
-	values(rowOffset -  6) =  0.0;
-	values(rowOffset -  5) = 16.0;
-	values(rowOffset -  4) =  0.0;
-	values(rowOffset -  3) = -1.0;
-	values(rowOffset -  2) =  0.0;
-	values(rowOffset -  1) = -1.0;
+            // Fill values
+            if(dofIdx == dofRowIdx) {
+              values(rowOffset +  0*dofsPerNode + dofIdx) = -1.0;
+              values(rowOffset +  1*dofsPerNode + dofIdx) = -2.0;
+              values(rowOffset +  2*dofsPerNode + dofIdx) = -1.0;
+              values(rowOffset +  3*dofsPerNode + dofIdx) = -2.0;
+              values(rowOffset +  4*dofsPerNode + dofIdx) =  0.0;
+              values(rowOffset +  5*dofsPerNode + dofIdx) = -2.0;
+              values(rowOffset +  6*dofsPerNode + dofIdx) = -1.0;
+              values(rowOffset +  7*dofsPerNode + dofIdx) = -2.0;
+              values(rowOffset +  8*dofsPerNode + dofIdx) = -1.0;
+              values(rowOffset +  9*dofsPerNode + dofIdx) = -1.0;
+              values(rowOffset + 10*dofsPerNode + dofIdx) =  0.0;
+              values(rowOffset + 11*dofsPerNode + dofIdx) = -1.0;
+              values(rowOffset + 12*dofsPerNode + dofIdx) =  0.0;
+              values(rowOffset + 13*dofsPerNode + dofIdx) = 16.0;
+              values(rowOffset + 14*dofsPerNode + dofIdx) =  0.0;
+              values(rowOffset + 15*dofsPerNode + dofIdx) = -1.0;
+              values(rowOffset + 16*dofsPerNode + dofIdx) =  0.0;
+              values(rowOffset + 17*dofsPerNode + dofIdx) = -1.0;
+            } else {
+              values(rowOffset +  0*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  1*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  2*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  3*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  4*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  5*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  6*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  7*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  8*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  9*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset + 10*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset + 11*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset + 12*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset + 13*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset + 14*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset + 15*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset + 16*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset + 17*dofsPerNode + dofIdx) = 0.5;
+            }
+          }
+        }
       }
     }
 
@@ -2159,119 +2394,185 @@ namespace Test {
       if(bottomBC == 1 && frontBC == 1) {
 	// Compute row index
 	const ordinal_type i = idx;
-	const ordinal_type rowIdx = i + leftBC;
+        const ordinal_type baseRowIdx = (i + leftBC)*dofsPerNode;
+        const size_type baseRowOffset = (i*edgeStencilLength + leftBC*cornerStencilLength)*dofsPerNode*dofsPerNode;
 
-	// Compute rowOffset
-	const size_type rowOffset = (i + 1)*edgeStencilLength + leftBC*cornerStencilLength;
-	rowmap(rowIdx + 1) = rowOffset;
+        ordinal_type rowIdx = 0;
+        size_type rowOffset = 0;
+        for(int dofRowIdx = 0; dofRowIdx < dofsPerNode; ++dofRowIdx) {
+          rowIdx = baseRowIdx + dofRowIdx;
+          rowOffset = baseRowOffset + edgeStencilLength*dofsPerNode*dofRowIdx;
+          rowmap(rowIdx + 1) = rowOffset + edgeStencilLength*dofsPerNode;
 
-	// Fill column indices
-	columns(rowOffset - 12) = rowIdx - 1;
-	columns(rowOffset - 11) = rowIdx;
-	columns(rowOffset - 10) = rowIdx + 1;
-	columns(rowOffset -  9) = rowIdx + nx - 1;
-	columns(rowOffset -  8) = rowIdx + nx;
-	columns(rowOffset -  7) = rowIdx + nx + 1;
-	columns(rowOffset -  6) = rowIdx + nx*ny - 1;
-	columns(rowOffset -  5) = rowIdx + nx*ny;
-	columns(rowOffset -  4) = rowIdx + nx*ny + 1;
-	columns(rowOffset -  3) = rowIdx + nx*ny + nx - 1;
-	columns(rowOffset -  2) = rowIdx + nx*ny + nx;
-	columns(rowOffset -  1) = rowIdx + nx*ny + nx + 1;
+          // Fill column indices
+          for(int dofIdx = 0; dofIdx < dofsPerNode; ++dofIdx) {
+            columns(rowOffset +  0*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - 1*dofsPerNode;
+            columns(rowOffset +  1*dofsPerNode + dofIdx) = baseRowIdx + dofIdx;
+            columns(rowOffset +  2*dofsPerNode + dofIdx) = baseRowIdx + dofIdx + 1*dofsPerNode;
+            columns(rowOffset +  3*dofsPerNode + dofIdx) = baseRowIdx + dofIdx + (nx - 1)*dofsPerNode;
+            columns(rowOffset +  4*dofsPerNode + dofIdx) = baseRowIdx + dofIdx + nx*dofsPerNode;
+            columns(rowOffset +  5*dofsPerNode + dofIdx) = baseRowIdx + dofIdx + (nx + 1)*dofsPerNode;
+            columns(rowOffset +  6*dofsPerNode + dofIdx) = baseRowIdx + dofIdx + (nx*ny - 1)*dofsPerNode;
+            columns(rowOffset +  7*dofsPerNode + dofIdx) = baseRowIdx + dofIdx + (nx*ny)*dofsPerNode;
+            columns(rowOffset +  8*dofsPerNode + dofIdx) = baseRowIdx + dofIdx + (nx*ny + 1)*dofsPerNode;
+            columns(rowOffset +  9*dofsPerNode + dofIdx) = baseRowIdx + dofIdx + (nx*ny + nx - 1)*dofsPerNode;
+            columns(rowOffset + 10*dofsPerNode + dofIdx) = baseRowIdx + dofIdx + (nx*ny + nx)*dofsPerNode;
+            columns(rowOffset + 11*dofsPerNode + dofIdx) = baseRowIdx + dofIdx + (nx*ny + nx + 1)*dofsPerNode;
 
-	// Fill values
-	values(rowOffset - 12) =  0.0;
-	values(rowOffset - 11) =  8.0;
-	values(rowOffset - 10) =  0.0;
-	values(rowOffset -  9) = -1.0;
-	values(rowOffset -  8) =  0.0;
-	values(rowOffset -  7) = -1.0;
-	values(rowOffset -  6) = -1.0;
-	values(rowOffset -  5) =  0.0;
-	values(rowOffset -  4) = -1.0;
-	values(rowOffset -  3) = -1.0;
-	values(rowOffset -  2) = -2.0;
-	values(rowOffset -  1) = -1.0;
+            // Fill values
+            if(dofIdx == dofRowIdx) {
+              values(rowOffset +  0*dofsPerNode + dofIdx) =  0.0;
+              values(rowOffset +  1*dofsPerNode + dofIdx) =  8.0;
+              values(rowOffset +  2*dofsPerNode + dofIdx) =  0.0;
+              values(rowOffset +  3*dofsPerNode + dofIdx) = -1.0;
+              values(rowOffset +  4*dofsPerNode + dofIdx) =  0.0;
+              values(rowOffset +  5*dofsPerNode + dofIdx) = -1.0;
+              values(rowOffset +  6*dofsPerNode + dofIdx) = -1.0;
+              values(rowOffset +  7*dofsPerNode + dofIdx) =  0.0;
+              values(rowOffset +  8*dofsPerNode + dofIdx) = -1.0;
+              values(rowOffset +  9*dofsPerNode + dofIdx) = -1.0;
+              values(rowOffset + 10*dofsPerNode + dofIdx) = -2.0;
+              values(rowOffset + 11*dofsPerNode + dofIdx) = -1.0;
+            } else {
+              values(rowOffset +  0*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  1*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  2*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  3*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  4*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  5*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  6*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  7*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  8*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  9*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset + 10*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset + 11*dofsPerNode + dofIdx) = 0.5;
+            }
+          }
+        }
       }
 
       if(bottomBC == 1 && backBC == 1) {
 	// Compute row index
 	const ordinal_type j = ny - frontBC - 1;
 	const ordinal_type i = idx;
-	const ordinal_type rowIdx = (j + frontBC)*nx + i + leftBC;
+        const ordinal_type baseRowIdx = ((j + frontBC)*nx + i + leftBC)*dofsPerNode;
+        const size_type baseRowOffset = (j*numEntriesFrontRow + frontBC*numEntriesBottomFrontRow
+                                         + i*edgeStencilLength + leftBC*cornerStencilLength)*dofsPerNode*dofsPerNode;
 
-	// Compute rowOffset
-	const size_type rowOffset = j*numEntriesFrontRow + frontBC*numEntriesBottomFrontRow
-	  + (i + 1)*edgeStencilLength + leftBC*cornerStencilLength;
-	rowmap(rowIdx + 1) = rowOffset;
+        ordinal_type rowIdx = 0;
+        size_type rowOffset = 0;
+        for(int dofRowIdx = 0; dofRowIdx < dofsPerNode; ++dofRowIdx) {
+          rowIdx = baseRowIdx + dofRowIdx;
+          rowOffset = baseRowOffset + edgeStencilLength*dofsPerNode*dofRowIdx;
+          rowmap(rowIdx + 1) = rowOffset + edgeStencilLength*dofsPerNode;
 
-	// Fill column indices
-	columns(rowOffset - 12) = rowIdx - nx - 1;
-	columns(rowOffset - 11) = rowIdx - nx;
-	columns(rowOffset - 10) = rowIdx - nx + 1;
-	columns(rowOffset -  9) = rowIdx - 1;
-	columns(rowOffset -  8) = rowIdx;
-	columns(rowOffset -  7) = rowIdx + 1;
-	columns(rowOffset -  6) = rowIdx + nx*ny - nx - 1;
-	columns(rowOffset -  5) = rowIdx + nx*ny - nx;
-	columns(rowOffset -  4) = rowIdx + nx*ny - nx + 1;
-	columns(rowOffset -  3) = rowIdx + nx*ny - 1;
-	columns(rowOffset -  2) = rowIdx + nx*ny;
-	columns(rowOffset -  1) = rowIdx + nx*ny + 1;
+          // Fill column indices
+          for(int dofIdx = 0; dofIdx < dofsPerNode; ++dofIdx) {
+            columns(rowOffset +  0*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - (nx + 1)*dofsPerNode;
+            columns(rowOffset +  1*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - nx*dofsPerNode;
+            columns(rowOffset +  2*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - (nx - 1)*dofsPerNode;
+            columns(rowOffset +  3*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - 1*dofsPerNode;
+            columns(rowOffset +  4*dofsPerNode + dofIdx) = baseRowIdx + dofIdx;
+            columns(rowOffset +  5*dofsPerNode + dofIdx) = baseRowIdx + dofIdx + 1*dofsPerNode;
+            columns(rowOffset +  6*dofsPerNode + dofIdx) = baseRowIdx + dofIdx + (nx*ny - nx - 1)*dofsPerNode;
+            columns(rowOffset +  7*dofsPerNode + dofIdx) = baseRowIdx + dofIdx + (nx*ny - nx)*dofsPerNode;
+            columns(rowOffset +  8*dofsPerNode + dofIdx) = baseRowIdx + dofIdx + (nx*ny - nx + 1)*dofsPerNode;
+            columns(rowOffset +  9*dofsPerNode + dofIdx) = baseRowIdx + dofIdx + (nx*ny - 1)*dofsPerNode;
+            columns(rowOffset + 10*dofsPerNode + dofIdx) = baseRowIdx + dofIdx + nx*ny*dofsPerNode;
+            columns(rowOffset + 11*dofsPerNode + dofIdx) = baseRowIdx + dofIdx + (nx*ny + 1)*dofsPerNode;
 
-	// Fill values
-	values(rowOffset - 12) = -1.0;
-	values(rowOffset - 11) =  0.0;
-	values(rowOffset - 10) = -1.0;
-	values(rowOffset -  9) =  0.0;
-	values(rowOffset -  8) =  8.0;
-	values(rowOffset -  7) =  0.0;
-	values(rowOffset -  6) = -1.0;
-	values(rowOffset -  5) = -2.0;
-	values(rowOffset -  4) = -1.0;
-	values(rowOffset -  3) = -1.0;
-	values(rowOffset -  2) =  0.0;
-	values(rowOffset -  1) = -1.0;
+            // Fill values
+            if(dofIdx == dofRowIdx) {
+              values(rowOffset +  0*dofsPerNode + dofIdx) = -1.0;
+              values(rowOffset +  1*dofsPerNode + dofIdx) =  0.0;
+              values(rowOffset +  2*dofsPerNode + dofIdx) = -1.0;
+              values(rowOffset +  3*dofsPerNode + dofIdx) =  0.0;
+              values(rowOffset +  4*dofsPerNode + dofIdx) =  8.0;
+              values(rowOffset +  5*dofsPerNode + dofIdx) =  0.0;
+              values(rowOffset +  6*dofsPerNode + dofIdx) = -1.0;
+              values(rowOffset +  7*dofsPerNode + dofIdx) = -2.0;
+              values(rowOffset +  8*dofsPerNode + dofIdx) = -1.0;
+              values(rowOffset +  9*dofsPerNode + dofIdx) = -1.0;
+              values(rowOffset + 10*dofsPerNode + dofIdx) =  0.0;
+              values(rowOffset + 11*dofsPerNode + dofIdx) = -1.0;
+            } else {
+              values(rowOffset +  0*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  1*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  2*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  3*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  4*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  5*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  6*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  7*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  8*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  9*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset + 10*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset + 11*dofsPerNode + dofIdx) = 0.5;
+            }
+          }
+        }
       }
 
       if(topBC == 1 && frontBC == 1) {
 	// Compute row index
 	const ordinal_type k = nz - bottomBC - 1;
 	const ordinal_type i = idx;
-	const ordinal_type rowIdx = (k + bottomBC)*ny*nx + i + leftBC;
+        const ordinal_type baseRowIdx = ((k + bottomBC)*ny*nx + i + leftBC)*dofsPerNode;
+        const size_type baseRowOffset = (k*numEntriesPerGridPlane + bottomBC*numEntriesBottomPlane
+                                         + i*edgeStencilLength + leftBC*cornerStencilLength)*dofsPerNode*dofsPerNode;
 
-	// Compute rowOffset
-	const size_type rowOffset = k*numEntriesPerGridPlane + bottomBC*numEntriesBottomPlane
-	  + (i + 1)*edgeStencilLength + leftBC*cornerStencilLength;
-	rowmap(rowIdx + 1) = rowOffset;
+        ordinal_type rowIdx = 0;
+        size_type rowOffset = 0;
+        for(int dofRowIdx = 0; dofRowIdx < dofsPerNode; ++dofRowIdx) {
+          rowIdx = baseRowIdx + dofRowIdx;
+          rowOffset = baseRowOffset + edgeStencilLength*dofsPerNode*dofRowIdx;
+          rowmap(rowIdx + 1) = rowOffset + edgeStencilLength*dofsPerNode;
 
-	// Fill column indices
-	columns(rowOffset - 12) = rowIdx - nx*ny - 1;
-	columns(rowOffset - 11) = rowIdx - nx*ny;
-	columns(rowOffset - 10) = rowIdx - nx*ny + 1;
-	columns(rowOffset -  9) = rowIdx - nx*ny + nx - 1;
-	columns(rowOffset -  8) = rowIdx - nx*ny + nx;
-	columns(rowOffset -  7) = rowIdx - nx*ny + nx + 1;
-	columns(rowOffset -  6) = rowIdx - 1;
-	columns(rowOffset -  5) = rowIdx;
-	columns(rowOffset -  4) = rowIdx + 1;
-	columns(rowOffset -  3) = rowIdx + nx - 1;
-	columns(rowOffset -  2) = rowIdx + nx;
-	columns(rowOffset -  1) = rowIdx + nx + 1;
+          // Fill column indices
+          for(int dofIdx = 0; dofIdx < dofsPerNode; ++dofIdx) {
+            columns(rowOffset +  0*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - (nx*ny + 1)*dofsPerNode;
+            columns(rowOffset +  1*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - nx*ny*dofsPerNode;
+            columns(rowOffset +  2*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - (nx*ny - 1)*dofsPerNode;
+            columns(rowOffset +  3*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - (nx*ny - nx + 1)*dofsPerNode;
+            columns(rowOffset +  4*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - (nx*ny - nx)*dofsPerNode;
+            columns(rowOffset +  5*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - (nx*ny - nx - 1)*dofsPerNode;
+            columns(rowOffset +  6*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - 1*dofsPerNode;
+            columns(rowOffset +  7*dofsPerNode + dofIdx) = baseRowIdx + dofIdx;
+            columns(rowOffset +  8*dofsPerNode + dofIdx) = baseRowIdx + dofIdx + 1*dofsPerNode;
+            columns(rowOffset +  9*dofsPerNode + dofIdx) = baseRowIdx + dofIdx + (nx - 1)*dofsPerNode;
+            columns(rowOffset + 10*dofsPerNode + dofIdx) = baseRowIdx + dofIdx + nx*dofsPerNode;
+            columns(rowOffset + 11*dofsPerNode + dofIdx) = baseRowIdx + dofIdx + (nx + 1)*dofsPerNode;
 
-	// Fill values
-	values(rowOffset - 12) = -1.0;
-	values(rowOffset - 11) =  0.0;
-	values(rowOffset - 10) = -1.0;
-	values(rowOffset -  9) = -1.0;
-	values(rowOffset -  8) = -2.0;
-	values(rowOffset -  7) = -1.0;
-	values(rowOffset -  6) =  0.0;
-	values(rowOffset -  5) =  8.0;
-	values(rowOffset -  4) =  0.0;
-	values(rowOffset -  3) = -1.0;
-	values(rowOffset -  2) =  0.0;
-	values(rowOffset -  1) = -1.0;
+            // Fill values
+            if(dofIdx == dofRowIdx) {
+              values(rowOffset +  0*dofsPerNode + dofIdx) = -1.0;
+              values(rowOffset +  1*dofsPerNode + dofIdx) =  0.0;
+              values(rowOffset +  2*dofsPerNode + dofIdx) = -1.0;
+              values(rowOffset +  3*dofsPerNode + dofIdx) = -1.0;
+              values(rowOffset +  4*dofsPerNode + dofIdx) = -2.0;
+              values(rowOffset +  5*dofsPerNode + dofIdx) = -1.0;
+              values(rowOffset +  6*dofsPerNode + dofIdx) =  0.0;
+              values(rowOffset +  7*dofsPerNode + dofIdx) =  8.0;
+              values(rowOffset +  8*dofsPerNode + dofIdx) =  0.0;
+              values(rowOffset +  9*dofsPerNode + dofIdx) = -1.0;
+              values(rowOffset + 10*dofsPerNode + dofIdx) =  0.0;
+              values(rowOffset + 11*dofsPerNode + dofIdx) = -1.0;
+            } else {
+              values(rowOffset +  0*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  1*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  2*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  3*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  4*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  5*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  6*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  7*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  8*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  9*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset + 10*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset + 11*dofsPerNode + dofIdx) = 0.5;
+            }
+          }
+        }
       }
 
       if(topBC == 1 && backBC == 1) {
@@ -2279,41 +2580,65 @@ namespace Test {
 	const ordinal_type k = nz - bottomBC - 1;
 	const ordinal_type j = ny - frontBC - 1;
 	const ordinal_type i = idx;
-	const ordinal_type rowIdx = (k + bottomBC)*ny*nx + (j + frontBC)*nx + i + leftBC;
+        const ordinal_type baseRowIdx = ((k + bottomBC)*ny*nx + (j + frontBC)*nx
+                                         + i + leftBC)*dofsPerNode;
+        const size_type baseRowOffset = (k*numEntriesPerGridPlane + bottomBC*numEntriesBottomPlane
+                                         + j*numEntriesFrontRow + frontBC*numEntriesBottomFrontRow
+                                         + i*edgeStencilLength + leftBC*cornerStencilLength)*dofsPerNode*dofsPerNode;
 
-	// Compute rowOffset
-	const size_type rowOffset = k*numEntriesPerGridPlane + bottomBC*numEntriesBottomPlane
-	  + j*numEntriesFrontRow + frontBC*numEntriesBottomFrontRow
-	  + (i + 1)*edgeStencilLength + leftBC*cornerStencilLength;
-	rowmap(rowIdx + 1) = rowOffset;
+        ordinal_type rowIdx = 0;
+        size_type rowOffset = 0;
+        for(int dofRowIdx = 0; dofRowIdx < dofsPerNode; ++dofRowIdx) {
+          // Compute rowOffset
+          rowIdx = baseRowIdx + dofRowIdx;
+          rowOffset = baseRowOffset + edgeStencilLength*dofsPerNode*dofRowIdx;
+          rowmap(rowIdx + 1) = rowOffset + edgeStencilLength*dofsPerNode;
 
-	// Fill column indices
-	columns(rowOffset - 12) = rowIdx - nx*ny - nx - 1;
-	columns(rowOffset - 11) = rowIdx - nx*ny - nx;
-	columns(rowOffset - 10) = rowIdx - nx*ny - nx + 1;
-	columns(rowOffset -  9) = rowIdx - nx*ny - 1;
-	columns(rowOffset -  8) = rowIdx - nx*ny;
-	columns(rowOffset -  7) = rowIdx - nx*ny + 1;
-	columns(rowOffset -  6) = rowIdx - nx - 1;
-	columns(rowOffset -  5) = rowIdx - nx;
-	columns(rowOffset -  4) = rowIdx - nx + 1;
-	columns(rowOffset -  3) = rowIdx - 1;
-	columns(rowOffset -  2) = rowIdx;
-	columns(rowOffset -  1) = rowIdx + 1;
+          // Fill column indices
+          for(int dofIdx = 0; dofIdx < dofsPerNode; ++dofIdx) {
+            columns(rowOffset +  0*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - (nx*ny + nx + 1)*dofsPerNode;
+            columns(rowOffset +  1*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - (nx*ny + nx)*dofsPerNode;
+            columns(rowOffset +  2*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - (nx*ny + nx - 1)*dofsPerNode;
+            columns(rowOffset +  3*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - (nx*ny + 1)*dofsPerNode;
+            columns(rowOffset +  4*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - nx*ny*dofsPerNode;
+            columns(rowOffset +  5*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - (nx*ny - 1)*dofsPerNode;
+            columns(rowOffset +  6*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - (nx + 1)*dofsPerNode;
+            columns(rowOffset +  7*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - nx*dofsPerNode;
+            columns(rowOffset +  8*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - (nx - 1)*dofsPerNode;
+            columns(rowOffset +  9*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - 1*dofsPerNode;
+            columns(rowOffset + 10*dofsPerNode + dofIdx) = baseRowIdx + dofIdx;
+            columns(rowOffset + 11*dofsPerNode + dofIdx) = baseRowIdx + dofIdx + 1*dofsPerNode;
 
-	// Fill values
-	values(rowOffset - 12) = -1.0;
-	values(rowOffset - 11) = -2.0;
-	values(rowOffset - 10) = -1.0;
-	values(rowOffset -  9) = -1.0;
-	values(rowOffset -  8) =  0.0;
-	values(rowOffset -  7) = -1.0;
-	values(rowOffset -  6) = -1.0;
-	values(rowOffset -  5) =  0.0;
-	values(rowOffset -  4) = -1.0;
-	values(rowOffset -  3) =  0.0;
-	values(rowOffset -  2) =  8.0;
-	values(rowOffset -  1) =  0.0;
+            // Fill values
+            if(dofIdx == dofRowIdx) {
+              values(rowOffset +  0*dofsPerNode + dofIdx) = -1.0;
+              values(rowOffset +  1*dofsPerNode + dofIdx) = -2.0;
+              values(rowOffset +  2*dofsPerNode + dofIdx) = -1.0;
+              values(rowOffset +  3*dofsPerNode + dofIdx) = -1.0;
+              values(rowOffset +  4*dofsPerNode + dofIdx) =  0.0;
+              values(rowOffset +  5*dofsPerNode + dofIdx) = -1.0;
+              values(rowOffset +  6*dofsPerNode + dofIdx) = -1.0;
+              values(rowOffset +  7*dofsPerNode + dofIdx) =  0.0;
+              values(rowOffset +  8*dofsPerNode + dofIdx) = -1.0;
+              values(rowOffset +  9*dofsPerNode + dofIdx) =  0.0;
+              values(rowOffset + 10*dofsPerNode + dofIdx) =  8.0;
+              values(rowOffset + 11*dofsPerNode + dofIdx) =  0.0;
+            } else {
+              values(rowOffset +  0*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  1*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  2*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  3*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  4*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  5*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  6*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  7*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  8*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  9*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset + 10*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset + 11*dofsPerNode + dofIdx) = 0.5;
+            }
+          }
+        }
       }
     }
 
@@ -2322,119 +2647,186 @@ namespace Test {
       if(bottomBC == 1 && leftBC == 1) {
 	// Compute row index
 	const ordinal_type j = idx;
-	const ordinal_type rowIdx = (j + frontBC)*nx;
+        const ordinal_type baseRowIdx = ((j + frontBC)*nx)*dofsPerNode;
+        const size_type baseRowOffset = (j*numEntriesFrontRow + frontBC*numEntriesBottomFrontRow)*dofsPerNode*dofsPerNode;
 
-	// Compute rowOffset
-	const size_type rowOffset = j*numEntriesFrontRow + frontBC*numEntriesBottomFrontRow + edgeStencilLength;
-	rowmap(rowIdx + 1) = rowOffset;
+        ordinal_type rowIdx = 0;
+        size_type rowOffset = 0;
+        for(int dofRowIdx = 0; dofRowIdx < dofsPerNode; ++dofRowIdx) {
+          rowIdx = baseRowIdx + dofRowIdx;
+          rowOffset = baseRowOffset + edgeStencilLength*dofsPerNode*dofRowIdx;
+          rowmap(rowIdx + 1) = rowOffset + edgeStencilLength*dofsPerNode;
 
-	// Fill column indices
-	columns(rowOffset - 12) = rowIdx - nx;
-	columns(rowOffset - 11) = rowIdx - nx + 1;
-	columns(rowOffset - 10) = rowIdx;
-	columns(rowOffset -  9) = rowIdx + 1;
-	columns(rowOffset -  8) = rowIdx + nx;
-	columns(rowOffset -  7) = rowIdx + nx + 1;
-	columns(rowOffset -  6) = rowIdx + nx*ny - nx;
-	columns(rowOffset -  5) = rowIdx + nx*ny - nx + 1;
-	columns(rowOffset -  4) = rowIdx + nx*ny;
-	columns(rowOffset -  3) = rowIdx + nx*ny + 1;
-	columns(rowOffset -  2) = rowIdx + nx*ny + nx;
-	columns(rowOffset -  1) = rowIdx + nx*ny + nx + 1;
+          // Fill column indices
+          for(int dofIdx = 0; dofIdx < dofsPerNode; ++dofIdx) {
+            columns(rowOffset +  0*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - nx*dofsPerNode;
+            columns(rowOffset +  1*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - (nx - 1)*dofsPerNode;
+            columns(rowOffset +  2*dofsPerNode + dofIdx) = baseRowIdx + dofIdx;
+            columns(rowOffset +  3*dofsPerNode + dofIdx) = baseRowIdx + dofIdx + 1*dofsPerNode;
+            columns(rowOffset +  4*dofsPerNode + dofIdx) = baseRowIdx + dofIdx + nx*dofsPerNode;
+            columns(rowOffset +  5*dofsPerNode + dofIdx) = baseRowIdx + dofIdx + (nx + 1)*dofsPerNode;
+            columns(rowOffset +  6*dofsPerNode + dofIdx) = baseRowIdx + dofIdx + (nx*ny - nx)*dofsPerNode;
+            columns(rowOffset +  7*dofsPerNode + dofIdx) = baseRowIdx + dofIdx + (nx*ny - nx + 1)*dofsPerNode;
+            columns(rowOffset +  8*dofsPerNode + dofIdx) = baseRowIdx + dofIdx + nx*ny*dofsPerNode;
+            columns(rowOffset +  9*dofsPerNode + dofIdx) = baseRowIdx + dofIdx + (nx*ny + 1)*dofsPerNode;
+            columns(rowOffset + 10*dofsPerNode + dofIdx) = baseRowIdx + dofIdx + (nx*ny + nx)*dofsPerNode;
+            columns(rowOffset + 11*dofsPerNode + dofIdx) = baseRowIdx + dofIdx + (nx*ny + nx + 1)*dofsPerNode;
 
-	// Fill values
-	values(rowOffset - 12) =  0.0;
-	values(rowOffset - 11) = -1.0;
-	values(rowOffset - 10) =  8.0;
-	values(rowOffset -  9) =  0.0;
-	values(rowOffset -  8) =  0.0;
-	values(rowOffset -  7) = -1.0;
-	values(rowOffset -  6) = -1.0;
-	values(rowOffset -  5) = -1.0;
-	values(rowOffset -  4) =  0.0;
-	values(rowOffset -  3) = -2.0;
-	values(rowOffset -  2) = -1.0;
-	values(rowOffset -  1) = -1.0;
+            // Fill values
+            if(dofIdx == dofRowIdx) {
+              values(rowOffset +  0*dofsPerNode + dofIdx) =  0.0;
+              values(rowOffset +  1*dofsPerNode + dofIdx) = -1.0;
+              values(rowOffset +  2*dofsPerNode + dofIdx) =  8.0;
+              values(rowOffset +  3*dofsPerNode + dofIdx) =  0.0;
+              values(rowOffset +  4*dofsPerNode + dofIdx) =  0.0;
+              values(rowOffset +  5*dofsPerNode + dofIdx) = -1.0;
+              values(rowOffset +  6*dofsPerNode + dofIdx) = -1.0;
+              values(rowOffset +  7*dofsPerNode + dofIdx) = -1.0;
+              values(rowOffset +  8*dofsPerNode + dofIdx) =  0.0;
+              values(rowOffset +  9*dofsPerNode + dofIdx) = -2.0;
+              values(rowOffset + 10*dofsPerNode + dofIdx) = -1.0;
+              values(rowOffset + 11*dofsPerNode + dofIdx) = -1.0;
+            } else {
+              values(rowOffset +  0*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  1*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  2*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  3*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  4*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  5*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  6*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  7*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  8*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  9*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset + 10*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset + 11*dofsPerNode + dofIdx) = 0.5;
+            }
+          }
+        }
       }
 
       if(bottomBC == 1 && rightBC == 1) {
 	// Compute row index
 	const ordinal_type j = idx;
 	const ordinal_type i = nx - 1;
-	const ordinal_type rowIdx = (j + frontBC)*nx + i;
+        const ordinal_type baseRowIdx = ((j + frontBC)*nx + i)*dofsPerNode;
+        const size_type baseRowOffset = ((j + 1)*numEntriesFrontRow + frontBC*numEntriesBottomFrontRow - edgeStencilLength)*dofsPerNode*dofsPerNode;
 
-	// Compute rowOffset
-	const size_type rowOffset = (j + 1)*numEntriesFrontRow + frontBC*numEntriesBottomFrontRow;
-	rowmap(rowIdx + 1) = rowOffset;
+        ordinal_type rowIdx = 0;
+        size_type rowOffset = 0;
+        for(int dofRowIdx = 0; dofRowIdx < dofsPerNode; ++dofRowIdx) {
+          // Compute rowOffset
+          rowIdx = baseRowIdx + dofRowIdx;
+          rowOffset = baseRowOffset + edgeStencilLength*dofsPerNode*dofRowIdx;
+          rowmap(rowIdx + 1) = rowOffset + edgeStencilLength*dofsPerNode;
 
-	// Fill column indices
-	columns(rowOffset - 12) = rowIdx - nx - 1;
-	columns(rowOffset - 11) = rowIdx - nx;
-	columns(rowOffset - 10) = rowIdx - 1;
-	columns(rowOffset -  9) = rowIdx;
-	columns(rowOffset -  8) = rowIdx + nx - 1;
-	columns(rowOffset -  7) = rowIdx + nx;
-	columns(rowOffset -  6) = rowIdx + nx*ny - nx - 1;
-	columns(rowOffset -  5) = rowIdx + nx*ny - nx;
-	columns(rowOffset -  4) = rowIdx + nx*ny - 1;
-	columns(rowOffset -  3) = rowIdx + nx*ny;
-	columns(rowOffset -  2) = rowIdx + nx*ny + nx - 1;
-	columns(rowOffset -  1) = rowIdx + nx*ny + nx;
+          // Fill column indices
+          for(int dofIdx = 0; dofIdx < dofsPerNode; ++dofIdx) {
+            columns(rowOffset +  0*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - (nx + 1)*dofsPerNode;
+            columns(rowOffset +  1*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - nx*dofsPerNode;
+            columns(rowOffset +  2*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - 1*dofsPerNode;
+            columns(rowOffset +  3*dofsPerNode + dofIdx) = baseRowIdx + dofIdx;
+            columns(rowOffset +  4*dofsPerNode + dofIdx) = baseRowIdx + dofIdx + (nx - 1)*dofsPerNode;
+            columns(rowOffset +  5*dofsPerNode + dofIdx) = baseRowIdx + dofIdx + nx*dofsPerNode;
+            columns(rowOffset +  6*dofsPerNode + dofIdx) = baseRowIdx + dofIdx + (nx*ny - nx - 1)*dofsPerNode;
+            columns(rowOffset +  7*dofsPerNode + dofIdx) = baseRowIdx + dofIdx + (nx*ny - nx)*dofsPerNode;
+            columns(rowOffset +  8*dofsPerNode + dofIdx) = baseRowIdx + dofIdx + (nx*ny - 1)*dofsPerNode;
+            columns(rowOffset +  9*dofsPerNode + dofIdx) = baseRowIdx + dofIdx + nx*ny*dofsPerNode;
+            columns(rowOffset + 10*dofsPerNode + dofIdx) = baseRowIdx + dofIdx + (nx*ny + nx - 1)*dofsPerNode;
+            columns(rowOffset + 11*dofsPerNode + dofIdx) = baseRowIdx + dofIdx + (nx*ny + nx)*dofsPerNode;
 
-	// Fill values
-	values(rowOffset - 12) = -1.0;
-	values(rowOffset - 11) = -1.0;
-	values(rowOffset - 10) = -2.0;
-	values(rowOffset -  9) =  0.0;
-	values(rowOffset -  8) = -1.0;
-	values(rowOffset -  7) = -1.0;
-	values(rowOffset -  6) = -1.0;
-	values(rowOffset -  5) =  0.0;
-	values(rowOffset -  4) =  0.0;
-	values(rowOffset -  3) =  8.0;
-	values(rowOffset -  2) = -1.0;
-	values(rowOffset -  1) =  0.0;
+            // Fill values
+            if(dofIdx == dofRowIdx) {
+              values(rowOffset +  0*dofsPerNode + dofIdx) = -1.0;
+              values(rowOffset +  1*dofsPerNode + dofIdx) = -1.0;
+              values(rowOffset +  2*dofsPerNode + dofIdx) = -2.0;
+              values(rowOffset +  3*dofsPerNode + dofIdx) =  0.0;
+              values(rowOffset +  4*dofsPerNode + dofIdx) = -1.0;
+              values(rowOffset +  5*dofsPerNode + dofIdx) = -1.0;
+              values(rowOffset +  6*dofsPerNode + dofIdx) = -1.0;
+              values(rowOffset +  7*dofsPerNode + dofIdx) =  0.0;
+              values(rowOffset +  8*dofsPerNode + dofIdx) =  0.0;
+              values(rowOffset +  9*dofsPerNode + dofIdx) =  8.0;
+              values(rowOffset + 10*dofsPerNode + dofIdx) = -1.0;
+              values(rowOffset + 11*dofsPerNode + dofIdx) =  0.0;
+            } else {
+              values(rowOffset +  0*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  1*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  2*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  3*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  4*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  5*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  6*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  7*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  8*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  9*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset + 10*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset + 11*dofsPerNode + dofIdx) = 0.5;
+            }
+          }
+        }
       }
 
       if(topBC == 1 && leftBC == 1) {
 	// Compute row index
 	const ordinal_type k = nz - bottomBC - 1;
 	const ordinal_type j = idx;
-	const ordinal_type rowIdx = (k + bottomBC)*ny*nx + (j + frontBC)*nx;
+        const ordinal_type baseRowIdx = ((k + bottomBC)*ny*nx + (j + frontBC)*nx)*dofsPerNode;
+        const size_type baseRowOffset = (k*numEntriesPerGridPlane + bottomBC*numEntriesBottomPlane
+                                         + j*numEntriesFrontRow + frontBC*numEntriesBottomFrontRow)*dofsPerNode*dofsPerNode;
 
-	// Compute rowOffset
-	const ordinal_type rowOffset = k*numEntriesPerGridPlane + bottomBC*numEntriesBottomPlane
-	  + j*numEntriesFrontRow + frontBC*numEntriesBottomFrontRow
-	  + edgeStencilLength;
-	rowmap(rowIdx + 1) = rowOffset;
+        ordinal_type rowIdx = 0;
+        size_type rowOffset = 0;
+        for(int dofRowIdx = 0; dofRowIdx < dofsPerNode; ++dofRowIdx) {
+          // Compute rowOffset
+          rowIdx = baseRowIdx + dofRowIdx;
+          rowOffset = baseRowOffset + edgeStencilLength*dofsPerNode*dofRowIdx;
+          rowmap(rowIdx + 1) = rowOffset + edgeStencilLength*dofsPerNode;
 
-	// Fill column indices
-	columns(rowOffset - 12) = rowIdx - nx*ny - 1;
-	columns(rowOffset - 11) = rowIdx - nx*ny;
-	columns(rowOffset - 10) = rowIdx - nx*ny + 1;
-	columns(rowOffset -  9) = rowIdx - nx*ny + nx - 1;
-	columns(rowOffset -  8) = rowIdx - nx*ny + nx;
-	columns(rowOffset -  7) = rowIdx - nx*ny + nx + 1;
-	columns(rowOffset -  6) = rowIdx - 1;
-	columns(rowOffset -  5) = rowIdx;
-	columns(rowOffset -  4) = rowIdx + 1;
-	columns(rowOffset -  3) = rowIdx + nx - 1;
-	columns(rowOffset -  2) = rowIdx + nx;
-	columns(rowOffset -  1) = rowIdx + nx + 1;
+          // Fill column indices
+          for(int dofIdx = 0; dofIdx < dofsPerNode; ++dofIdx) {
+            columns(rowOffset +  0*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - (nx*ny + 1)*dofsPerNode;
+            columns(rowOffset +  1*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - nx*ny*dofsPerNode;
+            columns(rowOffset +  2*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - (nx*ny - 1)*dofsPerNode;
+            columns(rowOffset +  3*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - (nx*ny - nx + 1)*dofsPerNode;
+            columns(rowOffset +  4*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - (nx*ny - nx)*dofsPerNode;
+            columns(rowOffset +  5*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - (nx*ny - nx - 1)*dofsPerNode;
+            columns(rowOffset +  6*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - 1*dofsPerNode;
+            columns(rowOffset +  7*dofsPerNode + dofIdx) = baseRowIdx + dofIdx;
+            columns(rowOffset +  8*dofsPerNode + dofIdx) = baseRowIdx + dofIdx + 1*dofsPerNode;
+            columns(rowOffset +  9*dofsPerNode + dofIdx) = baseRowIdx + dofIdx + (nx - 1)*dofsPerNode;
+            columns(rowOffset + 10*dofsPerNode + dofIdx) = baseRowIdx + dofIdx + nx*dofsPerNode;
+            columns(rowOffset + 11*dofsPerNode + dofIdx) = baseRowIdx + dofIdx + (nx + 1)*dofsPerNode;
 
-	// Fill values
-	values(rowOffset - 12) = -1.0;
-	values(rowOffset - 11) =  0.0;
-	values(rowOffset - 10) = -1.0;
-	values(rowOffset -  9) = -1.0;
-	values(rowOffset -  8) = -2.0;
-	values(rowOffset -  7) = -1.0;
-	values(rowOffset -  6) =  0.0;
-	values(rowOffset -  5) =  8.0;
-	values(rowOffset -  4) =  0.0;
-	values(rowOffset -  3) = -1.0;
-	values(rowOffset -  2) =  0.0;
-	values(rowOffset -  1) = -1.0;
+            // Fill values
+            if(dofIdx == dofRowIdx) {
+              values(rowOffset +  0*dofsPerNode + dofIdx) = -1.0;
+              values(rowOffset +  1*dofsPerNode + dofIdx) =  0.0;
+              values(rowOffset +  2*dofsPerNode + dofIdx) = -1.0;
+              values(rowOffset +  3*dofsPerNode + dofIdx) = -1.0;
+              values(rowOffset +  4*dofsPerNode + dofIdx) = -2.0;
+              values(rowOffset +  5*dofsPerNode + dofIdx) = -1.0;
+              values(rowOffset +  6*dofsPerNode + dofIdx) =  0.0;
+              values(rowOffset +  7*dofsPerNode + dofIdx) =  8.0;
+              values(rowOffset +  8*dofsPerNode + dofIdx) =  0.0;
+              values(rowOffset +  9*dofsPerNode + dofIdx) = -1.0;
+              values(rowOffset + 10*dofsPerNode + dofIdx) =  0.0;
+              values(rowOffset + 11*dofsPerNode + dofIdx) = -1.0;
+            } else {
+              values(rowOffset +  0*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  1*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  2*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  3*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  4*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  5*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  6*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  7*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  8*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  9*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset + 10*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset + 11*dofsPerNode + dofIdx) = 0.5;
+            }
+          }
+        }
       }
 
       if(topBC == 1 && rightBC == 1) {
@@ -2442,40 +2834,63 @@ namespace Test {
 	const ordinal_type k = nz - bottomBC - 1;
 	const ordinal_type j = idx;
 	const ordinal_type i = nx - 1;
-	const ordinal_type rowIdx = (k + bottomBC)*ny*nx + (j + frontBC)*nx + i;
+        const ordinal_type baseRowIdx = ((k + bottomBC)*ny*nx + (j + frontBC)*nx + i)*dofsPerNode;
+        const size_type baseRowOffset = (k*numEntriesPerGridPlane + bottomBC*numEntriesBottomPlane
+                                         + (j + 1)*numEntriesFrontRow + frontBC*numEntriesBottomFrontRow - edgeStencilLength)*dofsPerNode*dofsPerNode;
 
-	// Compute rowOffset
-	const size_type rowOffset = k*numEntriesPerGridPlane + bottomBC*numEntriesBottomPlane
-	  + (j + 1)*numEntriesFrontRow + frontBC*numEntriesBottomFrontRow;
-	rowmap(rowIdx + 1) = rowOffset;
+        ordinal_type rowIdx = 0;
+        size_type rowOffset = 0;
+        for(int dofRowIdx = 0; dofRowIdx < dofsPerNode; ++dofRowIdx) {
+          // Compute rowOffset
+          rowIdx = baseRowIdx + dofRowIdx;
+          rowOffset = baseRowOffset + edgeStencilLength*dofsPerNode*dofRowIdx;
+          rowmap(rowIdx + 1) = rowOffset + edgeStencilLength*dofsPerNode;
 
-	// Fill column indices
-	columns(rowOffset - 12) = rowIdx - nx*ny - nx - 1;
-	columns(rowOffset - 11) = rowIdx - nx*ny - nx;
-	columns(rowOffset - 10) = rowIdx - nx*ny - 1;
-	columns(rowOffset -  9) = rowIdx - nx*ny;
-	columns(rowOffset -  8) = rowIdx - nx*ny + nx - 1;
-	columns(rowOffset -  7) = rowIdx - nx*ny + nx;
-	columns(rowOffset -  6) = rowIdx - nx - 1;
-	columns(rowOffset -  5) = rowIdx - nx;
-	columns(rowOffset -  4) = rowIdx - 1;
-	columns(rowOffset -  3) = rowIdx;
-	columns(rowOffset -  2) = rowIdx + nx - 1;
-	columns(rowOffset -  1) = rowIdx + nx;
+          // Fill column indices
+          for(int dofIdx = 0; dofIdx < dofsPerNode; ++dofIdx) {
+            columns(rowOffset +  0*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - (nx*ny + nx + 1)*dofsPerNode;
+            columns(rowOffset +  1*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - (nx*ny + nx)*dofsPerNode;
+            columns(rowOffset +  2*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - (nx*ny + 1)*dofsPerNode;
+            columns(rowOffset +  3*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - nx*ny*dofsPerNode;
+            columns(rowOffset +  4*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - (nx*ny - nx + 1)*dofsPerNode;
+            columns(rowOffset +  5*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - (nx*ny - nx)*dofsPerNode;
+            columns(rowOffset +  6*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - (nx + 1)*dofsPerNode;
+            columns(rowOffset +  7*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - nx*dofsPerNode;
+            columns(rowOffset +  8*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - 1*dofsPerNode;
+            columns(rowOffset +  9*dofsPerNode + dofIdx) = baseRowIdx + dofIdx;
+            columns(rowOffset + 10*dofsPerNode + dofIdx) = baseRowIdx + dofIdx + (nx - 1)*dofsPerNode;
+            columns(rowOffset + 11*dofsPerNode + dofIdx) = baseRowIdx + dofIdx + nx*dofsPerNode;
 
-	// Fill values
-	values(rowOffset - 12) = -1.0;
-	values(rowOffset - 11) = -1.0;
-	values(rowOffset - 10) = -2.0;
-	values(rowOffset -  9) =  0.0;
-	values(rowOffset -  8) = -1.0;
-	values(rowOffset -  7) = -1.0;
-	values(rowOffset -  6) = -1.0;
-	values(rowOffset -  5) =  0.0;
-	values(rowOffset -  4) =  0.0;
-	values(rowOffset -  3) =  8.0;
-	values(rowOffset -  2) = -1.0;
-	values(rowOffset -  1) =  0.0;
+            // Fill values
+            if(dofIdx == dofRowIdx) {
+              values(rowOffset +  0*dofsPerNode + dofIdx) = -1.0;
+              values(rowOffset +  1*dofsPerNode + dofIdx) = -1.0;
+              values(rowOffset +  2*dofsPerNode + dofIdx) = -2.0;
+              values(rowOffset +  3*dofsPerNode + dofIdx) =  0.0;
+              values(rowOffset +  4*dofsPerNode + dofIdx) = -1.0;
+              values(rowOffset +  5*dofsPerNode + dofIdx) = -1.0;
+              values(rowOffset +  6*dofsPerNode + dofIdx) = -1.0;
+              values(rowOffset +  7*dofsPerNode + dofIdx) =  0.0;
+              values(rowOffset +  8*dofsPerNode + dofIdx) =  0.0;
+              values(rowOffset +  9*dofsPerNode + dofIdx) =  8.0;
+              values(rowOffset + 10*dofsPerNode + dofIdx) = -1.0;
+              values(rowOffset + 11*dofsPerNode + dofIdx) =  0.0;
+            } else {
+              values(rowOffset +  0*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  1*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  2*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  3*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  4*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  5*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  6*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  7*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  8*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  9*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset + 10*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset + 11*dofsPerNode + dofIdx) = 0.5;
+            }
+          }
+        }
       }
     }
 
@@ -2484,166 +2899,192 @@ namespace Test {
       if(frontBC == 1 && leftBC == 1) {
 	// Compute row index
 	const ordinal_type k = idx;
-	const ordinal_type rowIdx = (k + bottomBC)*ny*nx;
+        const ordinal_type baseRowIdx = ((k + bottomBC)*ny*nx)*dofsPerNode;
+        const size_type baseRowOffset = (k*numEntriesPerGridPlane
+                                         + bottomBC*numEntriesBottomPlane)*dofsPerNode*dofsPerNode;
 
-	// Compute rowOffset
-	const size_type rowOffset = k*numEntriesPerGridPlane
-	  + bottomBC*numEntriesBottomPlane + edgeStencilLength;
-	rowmap(rowIdx + 1) = rowOffset;
+        ordinal_type rowIdx = 0;
+        size_type rowOffset = 0;
+        for(int dofRowIdx = 0; dofRowIdx < dofsPerNode; ++dofRowIdx) {
+          // Compute rowOffset
+          rowIdx = baseRowIdx + dofRowIdx;
+          rowOffset = baseRowOffset + edgeStencilLength*dofsPerNode*dofRowIdx;
+          rowmap(rowIdx + 1) = rowOffset + edgeStencilLength*dofsPerNode;
 
-	// Fill column indices
-	columns(rowOffset - 5) = rowIdx - ny*nx;
-	columns(rowOffset - 4) = rowIdx;
-	columns(rowOffset - 3) = rowIdx + 1;
-	columns(rowOffset - 2) = rowIdx + nx;
-	columns(rowOffset - 1) = rowIdx + ny*nx;
+          // Fill column indices
+          for(int dofIdx = 0; dofIdx < dofsPerNode; ++dofIdx) {
+            columns(rowOffset +  0*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - nx*ny*dofsPerNode;
+            columns(rowOffset +  1*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - (nx*ny - 1)*dofsPerNode;
+            columns(rowOffset +  2*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - (nx*ny - nx)*dofsPerNode;
+            columns(rowOffset +  3*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - (nx*ny - nx - 1)*dofsPerNode;
+            columns(rowOffset +  4*dofsPerNode + dofIdx) = baseRowIdx + dofIdx;
+            columns(rowOffset +  5*dofsPerNode + dofIdx) = baseRowIdx + dofIdx + 1*dofsPerNode;
+            columns(rowOffset +  6*dofsPerNode + dofIdx) = baseRowIdx + dofIdx + nx*dofsPerNode;
+            columns(rowOffset +  7*dofsPerNode + dofIdx) = baseRowIdx + dofIdx + (nx + 1)*dofsPerNode;
+            columns(rowOffset +  8*dofsPerNode + dofIdx) = baseRowIdx + dofIdx + (ny*nx)*dofsPerNode;
+            columns(rowOffset +  9*dofsPerNode + dofIdx) = baseRowIdx + dofIdx + (ny*nx + 1)*dofsPerNode;
+            columns(rowOffset + 10*dofsPerNode + dofIdx) = baseRowIdx + dofIdx + (ny*nx + nx)*dofsPerNode;
+            columns(rowOffset + 11*dofsPerNode + dofIdx) = baseRowIdx + dofIdx + (ny*nx + nx + 1)*dofsPerNode;
 
-	// Fill values
-	values(rowOffset - 5) = -1.0;
-	values(rowOffset - 4) =  4.0;
-	values(rowOffset - 3) = -1.0;
-	values(rowOffset - 2) = -1.0;
-	values(rowOffset - 1) = -1.0;
-
-	// Fill column indices
-	columns(rowOffset - 12) = rowIdx - nx*ny;
-	columns(rowOffset - 11) = rowIdx - nx*ny + 1;
-	columns(rowOffset - 10) = rowIdx - nx*ny + nx;
-	columns(rowOffset -  9) = rowIdx - nx*ny + nx + 1;
-	columns(rowOffset -  8) = rowIdx;
-	columns(rowOffset -  7) = rowIdx + 1;
-	columns(rowOffset -  6) = rowIdx + nx;
-	columns(rowOffset -  5) = rowIdx + nx + 1;
-	columns(rowOffset -  4) = rowIdx + ny*nx;
-	columns(rowOffset -  3) = rowIdx + ny*nx + 1;
-	columns(rowOffset -  2) = rowIdx + ny*nx + nx;
-	columns(rowOffset -  1) = rowIdx + ny*nx + nx + 1;
-
-	// Fill values
-	values(rowOffset - 12) =  0.0;
-	values(rowOffset - 11) = -1.0;
-	values(rowOffset - 10) = -1.0;
-	values(rowOffset -  9) = -1.0;
-	values(rowOffset -  8) =  8.0;
-	values(rowOffset -  7) =  0.0;
-	values(rowOffset -  6) =  0.0;
-	values(rowOffset -  5) = -2.0;
-	values(rowOffset -  4) =  0.0;
-	values(rowOffset -  3) = -1.0;
-	values(rowOffset -  2) = -1.0;
-	values(rowOffset -  1) = -1.0;
+            // Fill values
+            if(dofIdx == dofRowIdx) {
+              values(rowOffset +  0*dofsPerNode + dofIdx) =  0.0;
+              values(rowOffset +  1*dofsPerNode + dofIdx) = -1.0;
+              values(rowOffset +  2*dofsPerNode + dofIdx) = -1.0;
+              values(rowOffset +  3*dofsPerNode + dofIdx) = -1.0;
+              values(rowOffset +  4*dofsPerNode + dofIdx) =  8.0;
+              values(rowOffset +  5*dofsPerNode + dofIdx) =  0.0;
+              values(rowOffset +  6*dofsPerNode + dofIdx) =  0.0;
+              values(rowOffset +  7*dofsPerNode + dofIdx) = -2.0;
+              values(rowOffset +  8*dofsPerNode + dofIdx) =  0.0;
+              values(rowOffset +  9*dofsPerNode + dofIdx) = -1.0;
+              values(rowOffset + 10*dofsPerNode + dofIdx) = -1.0;
+              values(rowOffset + 11*dofsPerNode + dofIdx) = -1.0;
+            } else {
+              values(rowOffset +  0*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  1*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  2*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  3*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  4*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  5*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  6*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  7*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  8*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  9*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset + 10*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset + 11*dofsPerNode + dofIdx) = 0.5;
+            }
+          }
+        }
       }
 
       if(frontBC == 1 && rightBC == 1) {
 	// Compute row index
 	const ordinal_type k = idx;
 	const ordinal_type i = nx - leftBC - rightBC;
-	const ordinal_type rowIdx = (k + bottomBC)*ny*nx + i + leftBC;
+        const ordinal_type baseRowIdx = ((k + bottomBC)*ny*nx + i + leftBC)*dofsPerNode;
+        const size_type baseRowOffset = (k*numEntriesPerGridPlane + bottomBC*numEntriesBottomPlane
+                                         + i*faceStencilLength + leftBC*edgeStencilLength)*dofsPerNode*dofsPerNode;
 
-	// Compute rowOffset
-	const size_type rowOffset = k*numEntriesPerGridPlane + bottomBC*numEntriesBottomPlane
-	  + i*faceStencilLength + (leftBC + rightBC)*edgeStencilLength;
-	rowmap(rowIdx + 1) = rowOffset;
+        ordinal_type rowIdx = 0;
+        size_type rowOffset = 0;
+        for(int dofRowIdx = 0; dofRowIdx < dofsPerNode; ++dofRowIdx) {
+          // Compute rowOffset
+          rowIdx = baseRowIdx + dofRowIdx;
+          rowOffset = baseRowOffset + edgeStencilLength*dofsPerNode*dofRowIdx;
+          rowmap(rowIdx + 1) = rowOffset + edgeStencilLength*dofsPerNode;
 
-	// Fill column indices
-	columns(rowOffset - 5) = rowIdx - ny*nx;
-	columns(rowOffset - 4) = rowIdx - 1;
-	columns(rowOffset - 3) = rowIdx;
-	columns(rowOffset - 2) = rowIdx + nx;
-	columns(rowOffset - 1) = rowIdx + ny*nx;
+          // Fill column indices
+          for(int dofIdx = 0; dofIdx < dofsPerNode; ++dofIdx) {
+            columns(rowOffset +  0*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - (nx*ny + 1)*dofsPerNode;
+            columns(rowOffset +  1*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - nx*ny*dofsPerNode;
+            columns(rowOffset +  2*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - (nx*ny - nx + 1)*dofsPerNode;
+            columns(rowOffset +  3*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - (nx*ny - nx)*dofsPerNode;
+            columns(rowOffset +  4*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - 1*dofsPerNode;
+            columns(rowOffset +  5*dofsPerNode + dofIdx) = baseRowIdx + dofIdx;
+            columns(rowOffset +  6*dofsPerNode + dofIdx) = baseRowIdx + dofIdx + (nx - 1)*dofsPerNode;
+            columns(rowOffset +  7*dofsPerNode + dofIdx) = baseRowIdx + dofIdx + nx*dofsPerNode;
+            columns(rowOffset +  8*dofsPerNode + dofIdx) = baseRowIdx + dofIdx + (ny*nx - 1)*dofsPerNode;
+            columns(rowOffset +  9*dofsPerNode + dofIdx) = baseRowIdx + dofIdx + ny*nx*dofsPerNode;
+            columns(rowOffset + 10*dofsPerNode + dofIdx) = baseRowIdx + dofIdx + (ny*nx + nx - 1)*dofsPerNode;
+            columns(rowOffset + 11*dofsPerNode + dofIdx) = baseRowIdx + dofIdx + (ny*nx + nx)*dofsPerNode;
 
-	// Fill values
-	values(rowOffset - 5) = -1.0;
-	values(rowOffset - 4) = -1.0;
-	values(rowOffset - 3) =  4.0;
-	values(rowOffset - 2) = -1.0;
-	values(rowOffset - 1) = -1.0;
-
-	// Fill column indices
-	columns(rowOffset - 12) = rowIdx - nx*ny - 1;
-	columns(rowOffset - 11) = rowIdx - nx*ny;
-	columns(rowOffset - 10) = rowIdx - nx*ny + nx - 1;
-	columns(rowOffset -  9) = rowIdx - nx*ny + nx;
-	columns(rowOffset -  8) = rowIdx - 1;
-	columns(rowOffset -  7) = rowIdx;
-	columns(rowOffset -  6) = rowIdx + nx - 1;
-	columns(rowOffset -  5) = rowIdx + nx;
-	columns(rowOffset -  4) = rowIdx + ny*nx - 1;
-	columns(rowOffset -  3) = rowIdx + ny*nx;
-	columns(rowOffset -  2) = rowIdx + ny*nx + nx - 1;
-	columns(rowOffset -  1) = rowIdx + ny*nx + nx;
-
-	// Fill values
-	values(rowOffset - 12) = -1.0;
-	values(rowOffset - 11) =  0.0;
-	values(rowOffset - 10) = -1.0;
-	values(rowOffset -  9) = -1.0;
-	values(rowOffset -  8) =  0.0;
-	values(rowOffset -  7) =  8.0;
-	values(rowOffset -  6) = -2.0;
-	values(rowOffset -  5) =  0.0;
-	values(rowOffset -  4) = -1.0;
-	values(rowOffset -  3) =  0.0;
-	values(rowOffset -  2) = -1.0;
-	values(rowOffset -  1) = -1.0;
+            // Fill values
+            if(dofIdx == dofRowIdx) {
+              values(rowOffset +  0*dofsPerNode + dofIdx) = -1.0;
+              values(rowOffset +  1*dofsPerNode + dofIdx) =  0.0;
+              values(rowOffset +  2*dofsPerNode + dofIdx) = -1.0;
+              values(rowOffset +  3*dofsPerNode + dofIdx) = -1.0;
+              values(rowOffset +  4*dofsPerNode + dofIdx) =  0.0;
+              values(rowOffset +  5*dofsPerNode + dofIdx) =  8.0;
+              values(rowOffset +  6*dofsPerNode + dofIdx) = -2.0;
+              values(rowOffset +  7*dofsPerNode + dofIdx) =  0.0;
+              values(rowOffset +  8*dofsPerNode + dofIdx) = -1.0;
+              values(rowOffset +  9*dofsPerNode + dofIdx) =  0.0;
+              values(rowOffset + 10*dofsPerNode + dofIdx) = -1.0;
+              values(rowOffset + 11*dofsPerNode + dofIdx) = -1.0;
+            } else {
+              values(rowOffset +  0*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  1*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  2*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  3*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  4*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  5*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  6*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  7*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  8*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  9*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset + 10*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset + 11*dofsPerNode + dofIdx) = 0.5;
+            }
+          }
+        }
       }
 
       if(backBC == 1 && leftBC == 1) {
 	// Compute row index
 	const ordinal_type k = idx;
 	const ordinal_type j = ny - frontBC - backBC;
-	const ordinal_type rowIdx = (k + bottomBC)*ny*nx
-	  + (j + frontBC)*nx;
+        const ordinal_type baseRowIdx = ((k + bottomBC)*ny*nx
+                                         + (j + frontBC)*nx)*dofsPerNode;
+        const size_type baseRowOffset = (k*numEntriesPerGridPlane
+                                         + bottomBC*numEntriesBottomPlane
+                                         + j*numEntriesPerGridRow
+                                         + frontBC*numEntriesFrontRow)*dofsPerNode*dofsPerNode;
 
-	// Compute rowOffset
-	const size_type rowOffset = k*numEntriesPerGridPlane
-	  + bottomBC*numEntriesBottomPlane
-	  + j*numEntriesPerGridRow + frontBC*numEntriesFrontRow
-	  + edgeStencilLength;
-	rowmap(rowIdx + 1) = rowOffset;
+        ordinal_type rowIdx = 0;
+        size_type rowOffset = 0;
+        for(int dofRowIdx = 0; dofRowIdx < dofsPerNode; ++dofRowIdx) {
+          // Compute rowOffset
+          rowIdx = baseRowIdx + dofRowIdx;
+          rowOffset = baseRowOffset + edgeStencilLength*dofsPerNode*dofRowIdx;
+          rowmap(rowIdx + 1) = rowOffset + edgeStencilLength*dofsPerNode;
 
+          for(int dofIdx = 0; dofIdx < dofsPerNode; ++dofIdx) {
+            // Fill column indices
+            columns(rowOffset +  0*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - (nx*ny - nx)*dofsPerNode;
+            columns(rowOffset +  1*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - (nx*ny - nx + 1)*dofsPerNode;
+            columns(rowOffset +  2*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - nx*ny*dofsPerNode;
+            columns(rowOffset +  3*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - (nx*ny + 1)*dofsPerNode;
+            columns(rowOffset +  4*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - nx*dofsPerNode;
+            columns(rowOffset +  5*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - (nx + 1)*dofsPerNode;
+            columns(rowOffset +  6*dofsPerNode + dofIdx) = baseRowIdx + dofIdx;
+            columns(rowOffset +  7*dofsPerNode + dofIdx) = baseRowIdx + dofIdx + 1*dofsPerNode;
+            columns(rowOffset +  8*dofsPerNode + dofIdx) = baseRowIdx + dofIdx + (ny*nx - nx)*dofsPerNode;
+            columns(rowOffset +  9*dofsPerNode + dofIdx) = baseRowIdx + dofIdx + (ny*nx - nx + 1)*dofsPerNode;
+            columns(rowOffset + 10*dofsPerNode + dofIdx) = baseRowIdx + dofIdx + ny*nx*dofsPerNode;
+            columns(rowOffset + 11*dofsPerNode + dofIdx) = baseRowIdx + dofIdx + (ny*nx + 1)*dofsPerNode;
 
-	// Fill column indices
-	columns(rowOffset - 5) = rowIdx - ny*nx;
-	columns(rowOffset - 4) = rowIdx - nx;
-	columns(rowOffset - 3) = rowIdx;
-	columns(rowOffset - 2) = rowIdx + 1;
-	columns(rowOffset - 1) = rowIdx + ny*nx;
-
-	// Fill values
-	values(rowOffset - 5) = -1.0;
-	values(rowOffset - 4) = -1.0;
-	values(rowOffset - 3) =  4.0;
-	values(rowOffset - 2) = -1.0;
-	values(rowOffset - 1) = -1.0;
-
-	// Fill column indices
-	columns(rowOffset - 12) = rowIdx - nx*ny - nx;
-	columns(rowOffset - 11) = rowIdx - nx*ny - nx + 1;
-	columns(rowOffset - 10) = rowIdx - nx*ny;
-	columns(rowOffset -  9) = rowIdx - nx*ny + 1;
-	columns(rowOffset -  8) = rowIdx - nx;
-	columns(rowOffset -  7) = rowIdx - nx + 1;
-	columns(rowOffset -  6) = rowIdx;
-	columns(rowOffset -  5) = rowIdx + 1;
-	columns(rowOffset -  4) = rowIdx + ny*nx - nx;
-	columns(rowOffset -  3) = rowIdx + ny*nx - nx + 1;
-	columns(rowOffset -  2) = rowIdx + ny*nx;
-	columns(rowOffset -  1) = rowIdx + ny*nx + 1;
-
-	// Fill values
-	values(rowOffset - 12) = -1.0;
-	values(rowOffset - 11) = -1.0;
-	values(rowOffset - 10) =  0.0;
-	values(rowOffset -  9) = -1.0;
-	values(rowOffset -  8) =  0.0;
-	values(rowOffset -  7) = -2.0;
-	values(rowOffset -  6) =  8.0;
-	values(rowOffset -  5) =  0.0;
-	values(rowOffset -  4) = -1.0;
-	values(rowOffset -  3) = -1.0;
-	values(rowOffset -  2) =  0.0;
-	values(rowOffset -  1) = -1.0;
+            // Fill values
+            if(dofIdx == dofRowIdx) {
+              values(rowOffset +  0*dofsPerNode + dofIdx) = -1.0;
+              values(rowOffset +  1*dofsPerNode + dofIdx) = -1.0;
+              values(rowOffset +  2*dofsPerNode + dofIdx) =  0.0;
+              values(rowOffset +  3*dofsPerNode + dofIdx) = -1.0;
+              values(rowOffset +  4*dofsPerNode + dofIdx) =  0.0;
+              values(rowOffset +  5*dofsPerNode + dofIdx) = -2.0;
+              values(rowOffset +  6*dofsPerNode + dofIdx) =  8.0;
+              values(rowOffset +  7*dofsPerNode + dofIdx) =  0.0;
+              values(rowOffset +  8*dofsPerNode + dofIdx) = -1.0;
+              values(rowOffset +  9*dofsPerNode + dofIdx) = -1.0;
+              values(rowOffset + 10*dofsPerNode + dofIdx) =  0.0;
+              values(rowOffset + 11*dofsPerNode + dofIdx) = -1.0;
+            } else {
+              values(rowOffset +  0*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  1*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  2*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  3*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  4*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  5*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  6*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  7*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  8*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  9*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset + 10*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset + 11*dofsPerNode + dofIdx) = 0.5;
+            }
+          }
+        }
       }
 
       if(backBC == 1 && rightBC == 1) {
@@ -2651,57 +3092,67 @@ namespace Test {
 	const ordinal_type k = idx;
 	const ordinal_type j = ny - frontBC - backBC;
 	const ordinal_type i = nx - leftBC - rightBC;
-	const ordinal_type rowIdx = (k + bottomBC)*ny*nx
-	  + (j + frontBC)*nx + i + leftBC;
+        const ordinal_type baseRowIdx = ((k + bottomBC)*ny*nx
+                                         + (j + frontBC)*nx + i + leftBC)*dofsPerNode;
+        const size_type baseRowOffset = (k*numEntriesPerGridPlane
+                                         + bottomBC*numEntriesBottomPlane
+                                         + j*numEntriesPerGridRow + frontBC*numEntriesFrontRow
+                                         + i*faceStencilLength
+                                         + leftBC*edgeStencilLength)*dofsPerNode*dofsPerNode;
 
-	// Compute rowOffset
-	const size_type rowOffset = k*numEntriesPerGridPlane
-	  + bottomBC*numEntriesBottomPlane
-	  + j*numEntriesPerGridRow + frontBC*numEntriesFrontRow
-	  + i*faceStencilLength + (leftBC + rightBC)*edgeStencilLength;
-	rowmap(rowIdx + 1) = rowOffset;
+        ordinal_type rowIdx = 0;
+        size_type rowOffset = 0;
+        for(int dofRowIdx = 0; dofRowIdx < dofsPerNode; ++dofRowIdx) {
+          // Compute rowOffset
+          rowIdx = baseRowIdx + dofRowIdx;
+          rowOffset = baseRowOffset + edgeStencilLength*dofsPerNode*dofRowIdx;
+          rowmap(rowIdx + 1) = rowOffset + edgeStencilLength*dofsPerNode;
 
-	// Fill column indices
-	columns(rowOffset - 5) = rowIdx - ny*nx;
-	columns(rowOffset - 4) = rowIdx - nx;
-	columns(rowOffset - 3) = rowIdx - 1;
-	columns(rowOffset - 2) = rowIdx;
-	columns(rowOffset - 1) = rowIdx + ny*nx;
+          // Fill column indices
+          for(int dofIdx = 0; dofIdx < dofsPerNode; ++dofIdx) {
+            columns(rowOffset +  0*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - (nx*ny + nx + 1)*dofsPerNode;
+            columns(rowOffset +  1*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - (nx*ny + nx)*dofsPerNode;
+            columns(rowOffset +  2*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - (nx*ny + 1)*dofsPerNode;
+            columns(rowOffset +  3*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - nx*ny*dofsPerNode;
+            columns(rowOffset +  4*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - (nx + 1)*dofsPerNode;
+            columns(rowOffset +  5*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - nx*dofsPerNode;
+            columns(rowOffset +  6*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - 1*dofsPerNode;
+            columns(rowOffset +  7*dofsPerNode + dofIdx) = baseRowIdx + dofIdx;
+            columns(rowOffset +  8*dofsPerNode + dofIdx) = baseRowIdx + dofIdx + (ny*nx - nx - 1)*dofsPerNode;
+            columns(rowOffset +  9*dofsPerNode + dofIdx) = baseRowIdx + dofIdx + (ny*nx - nx)*dofsPerNode;
+            columns(rowOffset + 10*dofsPerNode + dofIdx) = baseRowIdx + dofIdx + (ny*nx - 1)*dofsPerNode;
+            columns(rowOffset + 11*dofsPerNode + dofIdx) = baseRowIdx + dofIdx + ny*nx*dofsPerNode;
 
-	// Fill values
-	values(rowOffset - 5) = -1.0;
-	values(rowOffset - 4) = -1.0;
-	values(rowOffset - 3) = -1.0;
-	values(rowOffset - 2) =  4.0;
-	values(rowOffset - 1) = -1.0;
-
-	// Fill column indices
-	columns(rowOffset - 12) = rowIdx - nx*ny - nx - 1;
-	columns(rowOffset - 11) = rowIdx - nx*ny - nx;
-	columns(rowOffset - 10) = rowIdx - nx*ny - 1;
-	columns(rowOffset -  9) = rowIdx - nx*ny;
-	columns(rowOffset -  8) = rowIdx - nx - 1;
-	columns(rowOffset -  7) = rowIdx - nx;
-	columns(rowOffset -  6) = rowIdx - 1;
-	columns(rowOffset -  5) = rowIdx;
-	columns(rowOffset -  4) = rowIdx + ny*nx - nx - 1;
-	columns(rowOffset -  3) = rowIdx + ny*nx - nx;
-	columns(rowOffset -  2) = rowIdx + ny*nx - 1;
-	columns(rowOffset -  1) = rowIdx + ny*nx;
-
-	// Fill values
-	values(rowOffset - 12) = -1.0;
-	values(rowOffset - 11) = -1.0;
-	values(rowOffset - 10) = -1.0;
-	values(rowOffset -  9) =  0.0;
-	values(rowOffset -  8) = -2.0;
-	values(rowOffset -  7) =  0.0;
-	values(rowOffset -  6) =  0.0;
-	values(rowOffset -  5) =  8.0;
-	values(rowOffset -  4) = -1.0;
-	values(rowOffset -  3) = -1.0;
-	values(rowOffset -  2) = -1.0;
-	values(rowOffset -  1) =  0.0;
+            // Fill values
+            if(dofIdx == dofRowIdx) {
+              values(rowOffset +  0*dofsPerNode + dofIdx) = -1.0;
+              values(rowOffset +  1*dofsPerNode + dofIdx) = -1.0;
+              values(rowOffset +  2*dofsPerNode + dofIdx) = -1.0;
+              values(rowOffset +  3*dofsPerNode + dofIdx) =  0.0;
+              values(rowOffset +  4*dofsPerNode + dofIdx) = -2.0;
+              values(rowOffset +  5*dofsPerNode + dofIdx) =  0.0;
+              values(rowOffset +  6*dofsPerNode + dofIdx) =  0.0;
+              values(rowOffset +  7*dofsPerNode + dofIdx) =  8.0;
+              values(rowOffset +  8*dofsPerNode + dofIdx) = -1.0;
+              values(rowOffset +  9*dofsPerNode + dofIdx) = -1.0;
+              values(rowOffset + 10*dofsPerNode + dofIdx) = -1.0;
+              values(rowOffset + 11*dofsPerNode + dofIdx) =  0.0;
+            } else {
+              values(rowOffset +  0*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  1*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  2*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  3*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  4*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  5*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  6*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  7*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  8*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset +  9*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset + 10*dofsPerNode + dofIdx) = 0.5;
+              values(rowOffset + 11*dofsPerNode + dofIdx) = 0.5;
+            }
+          }
+        }
       }
     }
 
@@ -2711,110 +3162,187 @@ namespace Test {
       if(bottomBC == 1) {
 	if(frontBC == 1) {
 	  if(leftBC == 1) {
-	    const ordinal_type rowIdx = 0;
-	    const size_type rowOffset = cornerStencilLength;
-	    rowmap(rowIdx + 1) = rowOffset;
+	    ordinal_type rowIdx = 0;
+            size_type rowOffset = 0;
+            for(int dofRowIdx = 0; dofRowIdx < dofsPerNode; ++dofRowIdx) {
+              rowIdx = dofRowIdx;
+              rowOffset = cornerStencilLength*dofsPerNode*dofRowIdx;
+              rowmap(rowIdx + 1) = rowOffset + cornerStencilLength*dofsPerNode;
 
-	    // Fill column indices
-	    columns(rowOffset -  8) = rowIdx;
-	    columns(rowOffset -  7) = rowIdx + 1;
-	    columns(rowOffset -  6) = rowIdx + nx;
-	    columns(rowOffset -  5) = rowIdx + nx + 1;
-	    columns(rowOffset -  4) = rowIdx + ny*nx;
-	    columns(rowOffset -  3) = rowIdx + ny*nx + 1;
-	    columns(rowOffset -  2) = rowIdx + ny*nx + nx;
-	    columns(rowOffset -  1) = rowIdx + ny*nx + nx + 1;
+              // Fill column indices
+              for(int dofIdx = 0; dofIdx < dofsPerNode; ++dofIdx) {
+                columns(rowOffset + 0*dofsPerNode + dofIdx) = dofIdx;
+                columns(rowOffset + 1*dofsPerNode + dofIdx) = dofIdx + 1*dofsPerNode;
+                columns(rowOffset + 2*dofsPerNode + dofIdx) = dofIdx + nx*dofsPerNode;
+                columns(rowOffset + 3*dofsPerNode + dofIdx) = dofIdx + (nx + 1)*dofsPerNode;
+                columns(rowOffset + 4*dofsPerNode + dofIdx) = dofIdx + ny*nx*dofsPerNode;
+                columns(rowOffset + 5*dofsPerNode + dofIdx) = dofIdx + (ny*nx + 1)*dofsPerNode;
+                columns(rowOffset + 6*dofsPerNode + dofIdx) = dofIdx + (ny*nx + nx)*dofsPerNode;
+                columns(rowOffset + 7*dofsPerNode + dofIdx) = dofIdx + (ny*nx + nx + 1)*dofsPerNode;
 
-	    // Fill values
-	    values(rowOffset -  8) =  4.0;
-	    values(rowOffset -  7) =  0.0;
-	    values(rowOffset -  6) =  0.0;
-	    values(rowOffset -  5) = -1.0;
-	    values(rowOffset -  4) =  0.0;
-	    values(rowOffset -  3) = -1.0;
-	    values(rowOffset -  2) = -1.0;
-	    values(rowOffset -  1) = -1.0;
+                // Fill values
+                if(dofIdx == dofRowIdx) {
+                  values(rowOffset + 0*dofsPerNode + dofIdx) =  4.0;
+                  values(rowOffset + 1*dofsPerNode + dofIdx) =  0.0;
+                  values(rowOffset + 2*dofsPerNode + dofIdx) =  0.0;
+                  values(rowOffset + 3*dofsPerNode + dofIdx) = -1.0;
+                  values(rowOffset + 4*dofsPerNode + dofIdx) =  0.0;
+                  values(rowOffset + 5*dofsPerNode + dofIdx) = -1.0;
+                  values(rowOffset + 6*dofsPerNode + dofIdx) = -1.0;
+                  values(rowOffset + 7*dofsPerNode + dofIdx) = -1.0;
+                } else {
+                  values(rowOffset + 0*dofsPerNode + dofIdx) = 0.5;
+                  values(rowOffset + 1*dofsPerNode + dofIdx) = 0.5;
+                  values(rowOffset + 2*dofsPerNode + dofIdx) = 0.5;
+                  values(rowOffset + 3*dofsPerNode + dofIdx) = 0.5;
+                  values(rowOffset + 4*dofsPerNode + dofIdx) = 0.5;
+                  values(rowOffset + 5*dofsPerNode + dofIdx) = 0.5;
+                  values(rowOffset + 6*dofsPerNode + dofIdx) = 0.5;
+                  values(rowOffset + 7*dofsPerNode + dofIdx) = 0.5;
+                }
+              }
+            }
 	  }
 
 	  if(rightBC == 1) {
-	    const ordinal_type rowIdx = nx - 1;
-	    const size_type rowOffset = numEntriesBottomFrontRow;
-	    rowmap(rowIdx + 1) = rowOffset;
+	    const ordinal_type baseRowIdx = (nx - 1)*dofsPerNode;
+	    const size_type baseRowOffset = (numEntriesBottomFrontRow - cornerStencilLength)*dofsPerNode*dofsPerNode;
 
-	    // Fill column indices
-	    columns(rowOffset -  8) = rowIdx - 1;
-	    columns(rowOffset -  7) = rowIdx;
-	    columns(rowOffset -  6) = rowIdx + nx - 1;
-	    columns(rowOffset -  5) = rowIdx + nx;
-	    columns(rowOffset -  4) = rowIdx + ny*nx - 1;
-	    columns(rowOffset -  3) = rowIdx + ny*nx;
-	    columns(rowOffset -  2) = rowIdx + ny*nx + nx - 1;
-	    columns(rowOffset -  1) = rowIdx + ny*nx + nx;
+            ordinal_type rowIdx = 0;
+            size_type rowOffset = 0;
+            for(int dofRowIdx = 0; dofRowIdx < dofsPerNode; ++dofRowIdx) {
+              rowIdx = baseRowIdx + dofRowIdx;
+              rowOffset = baseRowOffset + cornerStencilLength*dofsPerNode*dofRowIdx;
+              rowmap(rowIdx + 1) = rowOffset + cornerStencilLength*dofsPerNode;
 
-	    // Fill values
-	    values(rowOffset -  8) =  0.0;
-	    values(rowOffset -  7) =  4.0;
-	    values(rowOffset -  6) = -1.0;
-	    values(rowOffset -  5) =  0.0;
-	    values(rowOffset -  4) = -1.0;
-	    values(rowOffset -  3) =  0.0;
-	    values(rowOffset -  2) = -1.0;
-	    values(rowOffset -  1) = -1.0;
+              // Fill column indices
+              for(int dofIdx = 0; dofIdx < dofsPerNode; ++dofIdx) {
+                columns(rowOffset + 0*dofsPerNode + dofIdx) = baseRowIdx - 1*dofsPerNode + dofIdx;
+                columns(rowOffset + 1*dofsPerNode + dofIdx) = baseRowIdx + dofIdx;
+                columns(rowOffset + 2*dofsPerNode + dofIdx) = baseRowIdx + (nx - 1)*dofsPerNode + dofIdx;
+                columns(rowOffset + 3*dofsPerNode + dofIdx) = baseRowIdx + nx*dofsPerNode + dofIdx;
+                columns(rowOffset + 4*dofsPerNode + dofIdx) = baseRowIdx + (ny*nx - 1)*dofsPerNode + dofIdx;
+                columns(rowOffset + 5*dofsPerNode + dofIdx) = baseRowIdx + ny*nx*dofsPerNode + dofIdx;
+                columns(rowOffset + 6*dofsPerNode + dofIdx) = baseRowIdx + (ny*nx + nx - 1)*dofsPerNode + dofIdx;
+                columns(rowOffset + 7*dofsPerNode + dofIdx) = baseRowIdx + (ny*nx + nx)*dofsPerNode + dofIdx;
+
+                // Fill values
+                if(dofIdx == dofRowIdx) {
+                  values(rowOffset + 0*dofsPerNode + dofIdx) =  0.0;
+                  values(rowOffset + 1*dofsPerNode + dofIdx) =  4.0;
+                  values(rowOffset + 2*dofsPerNode + dofIdx) = -1.0;
+                  values(rowOffset + 3*dofsPerNode + dofIdx) =  0.0;
+                  values(rowOffset + 4*dofsPerNode + dofIdx) = -1.0;
+                  values(rowOffset + 5*dofsPerNode + dofIdx) =  0.0;
+                  values(rowOffset + 6*dofsPerNode + dofIdx) = -1.0;
+                  values(rowOffset + 7*dofsPerNode + dofIdx) = -1.0;
+                } else {
+                  values(rowOffset + 0*dofsPerNode + dofIdx) = 0.5;
+                  values(rowOffset + 1*dofsPerNode + dofIdx) = 0.5;
+                  values(rowOffset + 2*dofsPerNode + dofIdx) = 0.5;
+                  values(rowOffset + 3*dofsPerNode + dofIdx) = 0.5;
+                  values(rowOffset + 4*dofsPerNode + dofIdx) = 0.5;
+                  values(rowOffset + 5*dofsPerNode + dofIdx) = 0.5;
+                  values(rowOffset + 6*dofsPerNode + dofIdx) = 0.5;
+                  values(rowOffset + 7*dofsPerNode + dofIdx) = 0.5;
+                }
+              }
+            }
 	  }
 	}
 
 	if(backBC == 1) {
 	  if(leftBC == 1) {
-	    const ordinal_type rowIdx = (ny - 1)*nx;
-	    const size_type rowOffset = (ny - frontBC - 1)*numEntriesFrontRow
-	      + frontBC*numEntriesBottomFrontRow + cornerStencilLength;
-	    rowmap(rowIdx + 1) = rowOffset;
+	    const ordinal_type baseRowIdx = ((ny - 1)*nx)*dofsPerNode;
+	    const size_type baseRowOffset = ((ny - frontBC - 1)*numEntriesFrontRow
+                                             + frontBC*numEntriesBottomFrontRow)*dofsPerNode*dofsPerNode;
 
-	    // Fill column indices
-	    columns(rowOffset -  8) = rowIdx - nx;
-	    columns(rowOffset -  7) = rowIdx - nx + 1;
-	    columns(rowOffset -  6) = rowIdx;
-	    columns(rowOffset -  5) = rowIdx + 1;
-	    columns(rowOffset -  4) = rowIdx + ny*nx - nx;
-	    columns(rowOffset -  3) = rowIdx + ny*nx - nx + 1;
-	    columns(rowOffset -  2) = rowIdx + ny*nx;
-	    columns(rowOffset -  1) = rowIdx + ny*nx + 1;
+            ordinal_type rowIdx = 0;
+            size_type rowOffset = 0;
+            for(int dofRowIdx = 0; dofRowIdx < dofsPerNode; ++dofRowIdx) {
+              rowIdx = baseRowIdx + dofRowIdx;
+              rowOffset = baseRowOffset + cornerStencilLength*dofsPerNode*dofRowIdx;
+              rowmap(rowIdx + 1) = rowOffset + cornerStencilLength*dofsPerNode;
 
-	    // Fill values
-	    values(rowOffset -  8) =  0.0;
-	    values(rowOffset -  7) = -1.0;
-	    values(rowOffset -  6) =  4.0;
-	    values(rowOffset -  5) =  0.0;
-	    values(rowOffset -  4) = -1.0;
-	    values(rowOffset -  3) = -1.0;
-	    values(rowOffset -  2) =  0.0;
-	    values(rowOffset -  1) = -1.0;
+              // Fill column indices
+              for(int dofIdx = 0; dofIdx < dofsPerNode; ++dofIdx) {
+                columns(rowOffset + 0*dofsPerNode + dofIdx) = baseRowIdx - nx*dofsPerNode + dofIdx;
+                columns(rowOffset + 1*dofsPerNode + dofIdx) = baseRowIdx - (nx - 1)*dofsPerNode + dofIdx;
+                columns(rowOffset + 2*dofsPerNode + dofIdx) = baseRowIdx + dofIdx;
+                columns(rowOffset + 3*dofsPerNode + dofIdx) = baseRowIdx + 1*dofsPerNode + dofIdx;
+                columns(rowOffset + 4*dofsPerNode + dofIdx) = baseRowIdx + (ny*nx - nx)*dofsPerNode + dofIdx;
+                columns(rowOffset + 5*dofsPerNode + dofIdx) = baseRowIdx + (ny*nx - nx + 1)*dofsPerNode + dofIdx;
+                columns(rowOffset + 6*dofsPerNode + dofIdx) = baseRowIdx + ny*nx*dofsPerNode + dofIdx;
+                columns(rowOffset + 7*dofsPerNode + dofIdx) = baseRowIdx + (ny*nx + 1)*dofsPerNode + dofIdx;
+
+                // Fill values
+                if(dofIdx == dofRowIdx) {
+                  values(rowOffset + 0*dofsPerNode + dofIdx) =  0.0;
+                  values(rowOffset + 1*dofsPerNode + dofIdx) = -1.0;
+                  values(rowOffset + 2*dofsPerNode + dofIdx) =  4.0;
+                  values(rowOffset + 3*dofsPerNode + dofIdx) =  0.0;
+                  values(rowOffset + 4*dofsPerNode + dofIdx) = -1.0;
+                  values(rowOffset + 5*dofsPerNode + dofIdx) = -1.0;
+                  values(rowOffset + 6*dofsPerNode + dofIdx) =  0.0;
+                  values(rowOffset + 7*dofsPerNode + dofIdx) = -1.0;
+                } else {
+                  values(rowOffset + 0*dofsPerNode + dofIdx) = 0.5;
+                  values(rowOffset + 1*dofsPerNode + dofIdx) = 0.5;
+                  values(rowOffset + 2*dofsPerNode + dofIdx) = 0.5;
+                  values(rowOffset + 3*dofsPerNode + dofIdx) = 0.5;
+                  values(rowOffset + 4*dofsPerNode + dofIdx) = 0.5;
+                  values(rowOffset + 5*dofsPerNode + dofIdx) = 0.5;
+                  values(rowOffset + 6*dofsPerNode + dofIdx) = 0.5;
+                  values(rowOffset + 7*dofsPerNode + dofIdx) = 0.5;
+                }
+              }
+            }
 	  }
 
 	  if(rightBC == 1) {
-	    const ordinal_type rowIdx = ny*nx - 1;
-	    const size_type rowOffset = numEntriesBottomPlane;
-	    rowmap(rowIdx + 1) = rowOffset;
+	    const ordinal_type baseRowIdx = (ny*nx - 1)*dofsPerNode;
+	    const size_type baseRowOffset = (numEntriesBottomPlane - cornerStencilLength)*dofsPerNode*dofsPerNode;
 
-	    // Fill column indices
-	    columns(rowOffset -  8) = rowIdx - nx - 1;
-	    columns(rowOffset -  7) = rowIdx - nx;
-	    columns(rowOffset -  6) = rowIdx - 1;
-	    columns(rowOffset -  5) = rowIdx;
-	    columns(rowOffset -  4) = rowIdx + ny*nx - nx - 1;
-	    columns(rowOffset -  3) = rowIdx + ny*nx - nx;
-	    columns(rowOffset -  2) = rowIdx + ny*nx - 1;
-	    columns(rowOffset -  1) = rowIdx + ny*nx;
+            ordinal_type rowIdx = 0;
+            size_type rowOffset = 0;
+            for(int dofRowIdx = 0; dofRowIdx < dofsPerNode; ++dofRowIdx) {
+              rowIdx = baseRowIdx + dofRowIdx;
+              rowOffset = baseRowOffset + cornerStencilLength*dofsPerNode*dofRowIdx;
+              rowmap(rowIdx + 1) = rowOffset + cornerStencilLength*dofsPerNode;
 
-	    // Fill values
-	    values(rowOffset -  8) = -1.0;
-	    values(rowOffset -  7) =  0.0;
-	    values(rowOffset -  6) =  0.0;
-	    values(rowOffset -  5) =  4.0;
-	    values(rowOffset -  4) = -1.0;
-	    values(rowOffset -  3) = -1.0;
-	    values(rowOffset -  2) = -1.0;
-	    values(rowOffset -  1) =  0.0;
+              // Fill column indices
+              for(int dofIdx = 0; dofIdx < dofsPerNode; ++dofIdx) {
+                columns(rowOffset + 0*dofsPerNode + dofIdx) = baseRowIdx - (nx + 1)*dofsPerNode + dofIdx;
+                columns(rowOffset + 1*dofsPerNode + dofIdx) = baseRowIdx - nx*dofsPerNode + dofIdx;
+                columns(rowOffset + 2*dofsPerNode + dofIdx) = baseRowIdx - 1*dofsPerNode + dofIdx;
+                columns(rowOffset + 3*dofsPerNode + dofIdx) = baseRowIdx + dofIdx;
+                columns(rowOffset + 4*dofsPerNode + dofIdx) = baseRowIdx + (ny*nx - nx - 1)*dofsPerNode + dofIdx;
+                columns(rowOffset + 5*dofsPerNode + dofIdx) = baseRowIdx + (ny*nx - nx)*dofsPerNode + dofIdx;
+                columns(rowOffset + 6*dofsPerNode + dofIdx) = baseRowIdx + (ny*nx - 1)*dofsPerNode + dofIdx;
+                columns(rowOffset + 7*dofsPerNode + dofIdx) = baseRowIdx + ny*nx*dofsPerNode + dofIdx;
+
+                // Fill values
+                if(dofIdx == dofRowIdx) {
+                  values(rowOffset + 0*dofsPerNode + dofIdx) = -1.0;
+                  values(rowOffset + 1*dofsPerNode + dofIdx) =  0.0;
+                  values(rowOffset + 2*dofsPerNode + dofIdx) =  0.0;
+                  values(rowOffset + 3*dofsPerNode + dofIdx) =  4.0;
+                  values(rowOffset + 4*dofsPerNode + dofIdx) = -1.0;
+                  values(rowOffset + 5*dofsPerNode + dofIdx) = -1.0;
+                  values(rowOffset + 6*dofsPerNode + dofIdx) = -1.0;
+                  values(rowOffset + 7*dofsPerNode + dofIdx) =  0.0;
+                } else {
+                  values(rowOffset + 0*dofsPerNode + dofIdx) = 0.5;
+                  values(rowOffset + 1*dofsPerNode + dofIdx) = 0.5;
+                  values(rowOffset + 2*dofsPerNode + dofIdx) = 0.5;
+                  values(rowOffset + 3*dofsPerNode + dofIdx) = 0.5;
+                  values(rowOffset + 4*dofsPerNode + dofIdx) = 0.5;
+                  values(rowOffset + 5*dofsPerNode + dofIdx) = 0.5;
+                  values(rowOffset + 6*dofsPerNode + dofIdx) = 0.5;
+                  values(rowOffset + 7*dofsPerNode + dofIdx) = 0.5;
+                }
+              }
+            }
 	  }
 	}
       }
@@ -2823,113 +3351,194 @@ namespace Test {
       if(topBC == 1) {
 	if(frontBC == 1) {
 	  if(leftBC == 1) {
-	    const ordinal_type rowIdx = (nz - 1)*ny*nx;
-	    const size_type rowOffset = (nz - bottomBC - 1)*numEntriesPerGridPlane
-	      + bottomBC*numEntriesBottomPlane + cornerStencilLength;
-	    rowmap(rowIdx + 1) = rowOffset;
+	    const ordinal_type baseRowIdx = ((nz - 1)*ny*nx)*dofsPerNode;
+            const size_type baseRowOffset = ((nz - bottomBC - 1)*numEntriesPerGridPlane
+                                             + bottomBC*numEntriesBottomPlane)*dofsPerNode*dofsPerNode;
 
-	    // Fill column indices
-	    columns(rowOffset -  8) = rowIdx - ny*nx;
-	    columns(rowOffset -  7) = rowIdx - ny*nx + 1;
-	    columns(rowOffset -  6) = rowIdx - ny*nx + nx;
-	    columns(rowOffset -  5) = rowIdx - ny*nx + nx + 1;
-	    columns(rowOffset -  4) = rowIdx;
-	    columns(rowOffset -  3) = rowIdx + 1;
-	    columns(rowOffset -  2) = rowIdx + nx;
-	    columns(rowOffset -  1) = rowIdx + nx + 1;
+            ordinal_type rowIdx = 0;
+            size_type rowOffset = 0;
+            for(int dofRowIdx = 0; dofRowIdx < dofsPerNode; ++dofRowIdx) {
+              rowIdx = baseRowIdx + dofRowIdx;
+              rowOffset = baseRowOffset + cornerStencilLength*dofsPerNode*dofRowIdx;
+              rowmap(rowIdx + 1) = rowOffset + cornerStencilLength*dofsPerNode;
 
-	    // Fill values
-	    values(rowOffset -  8) =  0.0;
-	    values(rowOffset -  7) = -1.0;
-	    values(rowOffset -  6) = -1.0;
-	    values(rowOffset -  5) = -1.0;
-	    values(rowOffset -  4) =  4.0;
-	    values(rowOffset -  3) =  0.0;
-	    values(rowOffset -  2) =  0.0;
-	    values(rowOffset -  1) = -1.0;
+              // Fill column indices
+              for(int dofIdx = 0; dofIdx < dofsPerNode; ++dofIdx) {
+                columns(rowOffset + 0*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - (ny*nx)*dofsPerNode;
+                columns(rowOffset + 1*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - (ny*nx - 1)*dofsPerNode;
+                columns(rowOffset + 2*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - (ny*nx - nx)*dofsPerNode;
+                columns(rowOffset + 3*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - (ny*nx - nx - 1)*dofsPerNode;
+                columns(rowOffset + 4*dofsPerNode + dofIdx) = baseRowIdx + dofIdx;
+                columns(rowOffset + 5*dofsPerNode + dofIdx) = baseRowIdx + dofIdx + 1*dofsPerNode;
+                columns(rowOffset + 6*dofsPerNode + dofIdx) = baseRowIdx + dofIdx + nx*dofsPerNode;
+                columns(rowOffset + 7*dofsPerNode + dofIdx) = baseRowIdx + dofIdx + (nx + 1)*dofsPerNode;
+
+                // Fill values
+                if(dofIdx == dofRowIdx) {
+                  values(rowOffset + 0*dofsPerNode + dofIdx) =  0.0;
+                  values(rowOffset + 1*dofsPerNode + dofIdx) = -1.0;
+                  values(rowOffset + 2*dofsPerNode + dofIdx) = -1.0;
+                  values(rowOffset + 3*dofsPerNode + dofIdx) = -1.0;
+                  values(rowOffset + 4*dofsPerNode + dofIdx) =  4.0;
+                  values(rowOffset + 5*dofsPerNode + dofIdx) =  0.0;
+                  values(rowOffset + 6*dofsPerNode + dofIdx) =  0.0;
+                  values(rowOffset + 7*dofsPerNode + dofIdx) = -1.0;
+                } else {
+                  values(rowOffset + 0*dofsPerNode + dofIdx) = 0.5;
+                  values(rowOffset + 1*dofsPerNode + dofIdx) = 0.5;
+                  values(rowOffset + 2*dofsPerNode + dofIdx) = 0.5;
+                  values(rowOffset + 3*dofsPerNode + dofIdx) = 0.5;
+                  values(rowOffset + 4*dofsPerNode + dofIdx) = 0.5;
+                  values(rowOffset + 5*dofsPerNode + dofIdx) = 0.5;
+                  values(rowOffset + 6*dofsPerNode + dofIdx) = 0.5;
+                  values(rowOffset + 7*dofsPerNode + dofIdx) = 0.5;
+                }
+              }
+            }
 	  }
 
 	  if(rightBC == 1) {
-	    const ordinal_type rowIdx = (nz - 1)*ny*nx + nx - 1;
-	    const size_type rowOffset = (nz - bottomBC - 1)*numEntriesPerGridPlane
-	      + bottomBC*numEntriesBottomPlane + numEntriesBottomFrontRow;
-	    rowmap(rowIdx + 1) = rowOffset;
+	    const ordinal_type baseRowIdx = ((nz - 1)*ny*nx + nx - 1)*dofsPerNode;
+	    const size_type baseRowOffset = ((nz - bottomBC - 1)*numEntriesPerGridPlane
+                                             + bottomBC*numEntriesBottomPlane + numEntriesBottomFrontRow
+                                             - cornerStencilLength)*dofsPerNode*dofsPerNode;
 
-	    // Fill column indices
-	    columns(rowOffset -  8) = rowIdx - ny*nx - 1;
-	    columns(rowOffset -  7) = rowIdx - ny*nx;
-	    columns(rowOffset -  6) = rowIdx - ny*nx + nx - 1;
-	    columns(rowOffset -  5) = rowIdx - ny*nx + nx;
-	    columns(rowOffset -  4) = rowIdx - 1;
-	    columns(rowOffset -  3) = rowIdx;
-	    columns(rowOffset -  2) = rowIdx + nx - 1;
-	    columns(rowOffset -  1) = rowIdx + nx;
+            ordinal_type rowIdx = 0;
+            size_type rowOffset = 0;
+            for(int dofRowIdx = 0; dofRowIdx < dofsPerNode; ++dofRowIdx) {
+              rowIdx = baseRowIdx + dofRowIdx;
+              rowOffset = baseRowOffset + cornerStencilLength*dofsPerNode*dofRowIdx;
+              rowmap(rowIdx + 1) = rowOffset + cornerStencilLength*dofsPerNode;
 
-	    // Fill values
-	    values(rowOffset -  8) = -1.0;
-	    values(rowOffset -  7) =  0.0;
-	    values(rowOffset -  6) = -1.0;
-	    values(rowOffset -  5) = -1.0;
-	    values(rowOffset -  4) =  0.0;
-	    values(rowOffset -  3) =  4.0;
-	    values(rowOffset -  2) = -1.0;
-	    values(rowOffset -  1) =  0.0;
+              // Fill column indices
+              for(int dofIdx = 0; dofIdx < dofsPerNode; ++dofIdx) {
+                columns(rowOffset + 0*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - (ny*nx + 1)*dofsPerNode;
+                columns(rowOffset + 1*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - ny*nx*dofsPerNode;
+                columns(rowOffset + 2*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - (ny*nx - nx + 1)*dofsPerNode;
+                columns(rowOffset + 3*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - (ny*nx - nx)*dofsPerNode;
+                columns(rowOffset + 4*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - 1*dofsPerNode;
+                columns(rowOffset + 5*dofsPerNode + dofIdx) = baseRowIdx + dofIdx;
+                columns(rowOffset + 6*dofsPerNode + dofIdx) = baseRowIdx + dofIdx + (nx - 1)*dofsPerNode;
+                columns(rowOffset + 7*dofsPerNode + dofIdx) = baseRowIdx + dofIdx + nx*dofsPerNode;
+
+                // Fill values
+                if(dofIdx == dofRowIdx) {
+                  values(rowOffset + 0*dofsPerNode + dofIdx) = -1.0;
+                  values(rowOffset + 1*dofsPerNode + dofIdx) =  0.0;
+                  values(rowOffset + 2*dofsPerNode + dofIdx) = -1.0;
+                  values(rowOffset + 3*dofsPerNode + dofIdx) = -1.0;
+                  values(rowOffset + 4*dofsPerNode + dofIdx) =  0.0;
+                  values(rowOffset + 5*dofsPerNode + dofIdx) =  4.0;
+                  values(rowOffset + 6*dofsPerNode + dofIdx) = -1.0;
+                  values(rowOffset + 7*dofsPerNode + dofIdx) =  0.0;
+                } else {
+                  values(rowOffset + 0*dofsPerNode + dofIdx) = 0.5;
+                  values(rowOffset + 1*dofsPerNode + dofIdx) = 0.5;
+                  values(rowOffset + 2*dofsPerNode + dofIdx) = 0.5;
+                  values(rowOffset + 3*dofsPerNode + dofIdx) = 0.5;
+                  values(rowOffset + 4*dofsPerNode + dofIdx) = 0.5;
+                  values(rowOffset + 5*dofsPerNode + dofIdx) = 0.5;
+                  values(rowOffset + 6*dofsPerNode + dofIdx) = 0.5;
+                  values(rowOffset + 7*dofsPerNode + dofIdx) = 0.5;
+                }
+              }
+            }
 	  }
 	}
 
 	if(backBC == 1) {
 	  if(leftBC == 1) {
-	    const ordinal_type rowIdx = nz*ny*nx - nx;
-	    const ordinal_type rowOffset = (nz - bottomBC - 1)*numEntriesPerGridPlane
-	      + bottomBC*numEntriesBottomPlane + (ny - frontBC - 1)*numEntriesFrontRow
-	      + frontBC*numEntriesBottomFrontRow + cornerStencilLength;
-	    rowmap(rowIdx + 1) = rowOffset;
+	    const ordinal_type baseRowIdx = (nz*ny*nx - nx)*dofsPerNode;
+	    const ordinal_type baseRowOffset = ((nz - bottomBC - 1)*numEntriesPerGridPlane
+                                                + bottomBC*numEntriesBottomPlane + (ny - frontBC - 1)*numEntriesFrontRow
+                                                + frontBC*numEntriesBottomFrontRow)*dofsPerNode*dofsPerNode;
 
-	    // Fill column indices
-	    columns(rowOffset -  8) = rowIdx - ny*nx - nx;
-	    columns(rowOffset -  7) = rowIdx - ny*nx - nx + 1;
-	    columns(rowOffset -  6) = rowIdx - ny*nx;
-	    columns(rowOffset -  5) = rowIdx - ny*nx + 1;
-	    columns(rowOffset -  4) = rowIdx - nx;
-	    columns(rowOffset -  3) = rowIdx - nx + 1;
-	    columns(rowOffset -  2) = rowIdx;
-	    columns(rowOffset -  1) = rowIdx + 1;
+            ordinal_type rowIdx = 0;
+            size_type rowOffset = 0;
+            for(int dofRowIdx = 0; dofRowIdx < dofsPerNode; ++dofRowIdx) {
+              rowIdx = baseRowIdx + dofRowIdx;
+              rowOffset = baseRowOffset + cornerStencilLength*dofsPerNode*dofRowIdx;
+              rowmap(rowIdx + 1) = rowOffset + cornerStencilLength*dofsPerNode;
 
-	    // Fill values
-	    values(rowOffset -  8) = -1.0;
-	    values(rowOffset -  7) = -1.0;
-	    values(rowOffset -  6) =  0.0;
-	    values(rowOffset -  5) = -1.0;
-	    values(rowOffset -  4) =  0.0;
-	    values(rowOffset -  3) = -1.0;
-	    values(rowOffset -  2) =  4.0;
-	    values(rowOffset -  1) =  0.0;
+              // Fill column indices
+              for(int dofIdx = 0; dofIdx < dofsPerNode; ++dofIdx) {
+                columns(rowOffset + 0*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - (ny*nx + nx)*dofsPerNode;
+                columns(rowOffset + 1*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - (ny*nx + nx - 1)*dofsPerNode;
+                columns(rowOffset + 2*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - ny*nx*dofsPerNode;
+                columns(rowOffset + 3*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - (ny*nx - 1)*dofsPerNode;
+                columns(rowOffset + 4*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - nx*dofsPerNode;
+                columns(rowOffset + 5*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - (nx - 1)*dofsPerNode;
+                columns(rowOffset + 6*dofsPerNode + dofIdx) = baseRowIdx + dofIdx;
+                columns(rowOffset + 7*dofsPerNode + dofIdx) = baseRowIdx + dofIdx + 1*dofsPerNode;
+
+                // Fill values
+                if(dofIdx == dofRowIdx) {
+                  values(rowOffset + 0*dofsPerNode + dofIdx) = -1.0;
+                  values(rowOffset + 1*dofsPerNode + dofIdx) = -1.0;
+                  values(rowOffset + 2*dofsPerNode + dofIdx) =  0.0;
+                  values(rowOffset + 3*dofsPerNode + dofIdx) = -1.0;
+                  values(rowOffset + 4*dofsPerNode + dofIdx) =  0.0;
+                  values(rowOffset + 5*dofsPerNode + dofIdx) = -1.0;
+                  values(rowOffset + 6*dofsPerNode + dofIdx) =  4.0;
+                  values(rowOffset + 7*dofsPerNode + dofIdx) =  0.0;
+                } else {
+                  values(rowOffset + 0*dofsPerNode + dofIdx) = 0.5;
+                  values(rowOffset + 1*dofsPerNode + dofIdx) = 0.5;
+                  values(rowOffset + 2*dofsPerNode + dofIdx) = 0.5;
+                  values(rowOffset + 3*dofsPerNode + dofIdx) = 0.5;
+                  values(rowOffset + 4*dofsPerNode + dofIdx) = 0.5;
+                  values(rowOffset + 5*dofsPerNode + dofIdx) = 0.5;
+                  values(rowOffset + 6*dofsPerNode + dofIdx) = 0.5;
+                  values(rowOffset + 7*dofsPerNode + dofIdx) = 0.5;
+                }
+              }
+            }
 	  }
 
 	  if(rightBC == 1) {
-	    const ordinal_type rowIdx = nz*ny*nx - 1;
-	    const size_type rowOffset = numEntries;
-	    rowmap(rowIdx + 1) = rowOffset;
+	    const ordinal_type baseRowIdx = (nz*ny*nx - 1)*dofsPerNode;
+	    const size_type baseRowOffset = (numEntries - cornerStencilLength)*dofsPerNode*dofsPerNode;
 
-	    // Fill column indices
-	    columns(rowOffset -  8) = rowIdx - ny*nx - nx - 1;
-	    columns(rowOffset -  7) = rowIdx - ny*nx - nx;
-	    columns(rowOffset -  6) = rowIdx - ny*nx - 1;
-	    columns(rowOffset -  5) = rowIdx - ny*nx;
-	    columns(rowOffset -  4) = rowIdx - nx - 1;
-	    columns(rowOffset -  3) = rowIdx - nx;
-	    columns(rowOffset -  2) = rowIdx - 1;
-	    columns(rowOffset -  1) = rowIdx;
+            ordinal_type rowIdx = 0;
+            size_type rowOffset = 0;
+            for(int dofRowIdx = 0; dofRowIdx < dofsPerNode; ++dofRowIdx) {
+              rowIdx = baseRowIdx + dofRowIdx;
+              rowOffset = baseRowOffset + cornerStencilLength*dofsPerNode*dofRowIdx;
+              rowmap(rowIdx + 1) = rowOffset + cornerStencilLength*dofsPerNode;
 
-	    // Fill values
-	    values(rowOffset -  8) = -1.0;
-	    values(rowOffset -  7) = -1.0;
-	    values(rowOffset -  6) = -1.0;
-	    values(rowOffset -  5) =  0.0;
-	    values(rowOffset -  4) = -1.0;
-	    values(rowOffset -  3) =  0.0;
-	    values(rowOffset -  2) =  0.0;
-	    values(rowOffset -  1) =  4.0;
+              // Fill column indices
+              for(int dofIdx = 0; dofIdx < dofsPerNode; ++dofIdx) {
+                columns(rowOffset +  0*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - (ny*nx + nx + 1)*dofsPerNode;
+                columns(rowOffset +  1*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - (ny*nx + nx)*dofsPerNode;
+                columns(rowOffset +  2*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - (ny*nx + 1)*dofsPerNode;
+                columns(rowOffset +  3*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - ny*nx*dofsPerNode;
+                columns(rowOffset +  4*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - (nx + 1)*dofsPerNode;
+                columns(rowOffset +  5*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - nx*dofsPerNode;
+                columns(rowOffset +  6*dofsPerNode + dofIdx) = baseRowIdx + dofIdx - dofsPerNode;
+                columns(rowOffset +  7*dofsPerNode + dofIdx) = baseRowIdx + dofIdx;
+
+                // Fill values
+                if(dofIdx == dofRowIdx) {
+                  values(rowOffset +  0*dofsPerNode + dofIdx) = -1.0;
+                  values(rowOffset +  1*dofsPerNode + dofIdx) = -1.0;
+                  values(rowOffset +  2*dofsPerNode + dofIdx) = -1.0;
+                  values(rowOffset +  3*dofsPerNode + dofIdx) =  0.0;
+                  values(rowOffset +  4*dofsPerNode + dofIdx) = -1.0;
+                  values(rowOffset +  5*dofsPerNode + dofIdx) =  0.0;
+                  values(rowOffset +  6*dofsPerNode + dofIdx) =  0.0;
+                  values(rowOffset +  7*dofsPerNode + dofIdx) =  4.0;
+                } else {
+                  values(rowOffset +  0*dofsPerNode + dofIdx) = 0.5;
+                  values(rowOffset +  1*dofsPerNode + dofIdx) = 0.5;
+                  values(rowOffset +  2*dofsPerNode + dofIdx) = 0.5;
+                  values(rowOffset +  3*dofsPerNode + dofIdx) = 0.5;
+                  values(rowOffset +  4*dofsPerNode + dofIdx) = 0.5;
+                  values(rowOffset +  5*dofsPerNode + dofIdx) = 0.5;
+                  values(rowOffset +  6*dofsPerNode + dofIdx) = 0.5;
+                  values(rowOffset +  7*dofsPerNode + dofIdx) = 0.5;
+                }
+              }
+            }
 	  }
 	}
       }
@@ -2938,7 +3547,8 @@ namespace Test {
 
   template <typename CrsMatrix_t, typename mat_structure>
   CrsMatrix_t generate_structured_matrix3D(const std::string stencil,
-                                    const mat_structure& structure) {
+                                           const mat_structure& structure,
+                                           const int dofsPerNode) {
 
     typedef typename CrsMatrix_t::StaticCrsGraphType graph_t;
     typedef typename CrsMatrix_t::row_map_type::non_const_type row_map_view_t;
@@ -2964,6 +3574,7 @@ namespace Test {
     const ordinal_type ny          = structure(1,0);
     const ordinal_type nz          = structure(2,0);
     const ordinal_type numNodes    = ny*nx*nz;
+    const ordinal_type numEqs      = numNodes*dofsPerNode;
     const ordinal_type leftBC      = structure(0,1);
     const ordinal_type rightBC     = structure(0,2);
     const ordinal_type frontBC     = structure(1,1);
@@ -2998,13 +3609,13 @@ namespace Test {
       cornerStencilLength   = 8;
     }
 
-    const size_type numEntries = numInterior*interiorStencilLength
-      + numFace*faceStencilLength
-      + numEdge*edgeStencilLength
-      + numCorner*cornerStencilLength;
+    const size_type numEntries = (numInterior*interiorStencilLength
+                                  + numFace*faceStencilLength
+                                  + numEdge*edgeStencilLength
+                                  + numCorner*cornerStencilLength)*dofsPerNode*dofsPerNode;
 
     // Create matrix data
-    row_map_view_t rowmap_view ("rowmap_view",  numNodes + 1);
+    row_map_view_t rowmap_view ("rowmap_view",  numEqs + 1);
     cols_view_t    columns_view("colsmap_view", numEntries);
     scalar_view_t  values_view ("values_view",  numEntries);
 
@@ -3012,7 +3623,8 @@ namespace Test {
     // To start simple we construct 2D 5pt stencil Laplacian.
     // We assume Neumann boundary conditions on the edge of the domain.
 
-    fill_3D_matrix_functor<CrsMatrix_t> fill_3D_matrix(stencil_type, nx, ny, nz,
+    fill_3D_matrix_functor<CrsMatrix_t> fill_3D_matrix(stencil_type, dofsPerNode,
+                                                       nx, ny, nz,
 						       leftBC, rightBC, frontBC,
 						       backBC, bottomBC, topBC,
 						       rowmap_view, columns_view,

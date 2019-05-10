@@ -408,8 +408,8 @@ void test_spmv_struct_3D(lno_t nx, lno_t ny, lno_t nz, lno_t horizontal1BC, lno_
   if(verticalBC == 1 || verticalBC == 3) { mat_structure(2, 1) = 1; }
   if(verticalBC == 2 || verticalBC == 3) { mat_structure(2, 2) = 1; }
 
-  crsMat_t input_mat_FD = Test::generate_structured_matrix3D<crsMat_t>("FD", mat_structure);
-  crsMat_t input_mat_FE = Test::generate_structured_matrix3D<crsMat_t>("FE", mat_structure);
+  crsMat_t input_mat_FD = Test::generate_structured_matrix3D<crsMat_t>("FD", mat_structure, 1);
+  crsMat_t input_mat_FE = Test::generate_structured_matrix3D<crsMat_t>("FE", mat_structure, 1);
 
   lno_t nr = input_mat_FD.numRows();
   lno_t nc = input_mat_FD.numCols();
