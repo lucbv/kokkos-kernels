@@ -61,13 +61,6 @@ struct spmv_tpl_spec_avail<double const,  const int, Kokkos::Device<Kokkos::Cuda
                            double*, Kokkos::LayoutLeft, Kokkos::Device<Kokkos::Cuda, Kokkos::CudaSpace>, Kokkos::MemoryTraits<Kokkos::Unmanaged> > {
   enum : bool { value = true };
 };
-
-template<>
-struct spmv_tpl_spec_avail<double const,  const int, Kokkos::Device<Kokkos::Cuda, Kokkos::CudaSpace>, Kokkos::MemoryTraits<Kokkos::Unmanaged>, int,
-                           double const*, Kokkos::LayoutLeft, Kokkos::Device<Kokkos::Cuda, Kokkos::CudaSpace>, Kokkos::MemoryTraits<Kokkos::Unmanaged|Kokkos::RandomAccess>,
-                           double*, Kokkos::LayoutLeft, Kokkos::Device<Kokkos::Cuda, Kokkos::CudaSpace>, Kokkos::MemoryTraits<Kokkos::Unmanaged> > {
-  enum : bool { value = true };
-};
 #endif // KOKKOSKERNELS_ENABLE_TPL_CUSPARSE
 
 // Specialization struct which defines whether a specialization exists
