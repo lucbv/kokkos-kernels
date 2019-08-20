@@ -58,14 +58,14 @@ struct spmv_tpl_spec_avail {
 template<>
 struct spmv_tpl_spec_avail<double const,  const int, Kokkos::Device<Kokkos::Cuda, Kokkos::CudaSpace>, Kokkos::MemoryTraits<Kokkos::Unmanaged>, int,
                            double const*, Kokkos::LayoutLeft, Kokkos::Device<Kokkos::Cuda, Kokkos::CudaSpace>, Kokkos::MemoryTraits<Kokkos::Unmanaged|Kokkos::RandomAccess>,
-                           double*, Kokkos::LayoutLeft, Kokkos::Device<Kokkos::Cuda, Kokkos::CudaSpace>, Kokkos::MemoryTraits<Kokkos::Unmanaged>, true, false > {
+                           double*, Kokkos::LayoutLeft, Kokkos::Device<Kokkos::Cuda, Kokkos::CudaSpace>, Kokkos::MemoryTraits<Kokkos::Unmanaged> > {
   enum : bool { value = true };
 };
 
 template<>
 struct spmv_tpl_spec_avail<double const,  const int, Kokkos::Device<Kokkos::Cuda, Kokkos::CudaSpace>, Kokkos::MemoryTraits<Kokkos::Unmanaged>, int,
                            double const*, Kokkos::LayoutLeft, Kokkos::Device<Kokkos::Cuda, Kokkos::CudaSpace>, Kokkos::MemoryTraits<Kokkos::Unmanaged|Kokkos::RandomAccess>,
-                           double*, Kokkos::LayoutLeft, Kokkos::Device<Kokkos::Cuda, Kokkos::CudaSpace>, Kokkos::MemoryTraits<Kokkos::Unmanaged>, true, true > {
+                           double*, Kokkos::LayoutLeft, Kokkos::Device<Kokkos::Cuda, Kokkos::CudaSpace>, Kokkos::MemoryTraits<Kokkos::Unmanaged> > {
   enum : bool { value = true };
 };
 #endif // KOKKOSKERNELS_ENABLE_TPL_CUSPARSE
