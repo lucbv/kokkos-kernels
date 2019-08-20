@@ -76,39 +76,39 @@ struct spmv_mv_eti_spec_avail {
 
 
 #define KOKKOSSPARSE_SPMV_ETI_SPEC_AVAIL( SCALAR_TYPE, ORDINAL_TYPE, OFFSET_TYPE, LAYOUT_TYPE, EXEC_SPACE_TYPE, MEM_SPACE_TYPE) \
-    template<> \
-    struct spmv_eti_spec_avail<const SCALAR_TYPE, \
-                  const ORDINAL_TYPE, \
-                  Kokkos::Device<EXEC_SPACE_TYPE, MEM_SPACE_TYPE>, \
-                  Kokkos::MemoryTraits<Kokkos::Unmanaged>, \
-                  const OFFSET_TYPE, \
-                  SCALAR_TYPE const*, \
-                  LAYOUT_TYPE, \
-                  Kokkos::Device<EXEC_SPACE_TYPE, MEM_SPACE_TYPE>, \
-                  Kokkos::MemoryTraits<Kokkos::Unmanaged|Kokkos::RandomAccess>, \
-                  SCALAR_TYPE*, \
-                  LAYOUT_TYPE, \
-                  Kokkos::Device<EXEC_SPACE_TYPE, MEM_SPACE_TYPE>, \
-                  Kokkos::MemoryTraits<Kokkos::Unmanaged> > \
-    { enum : bool { value = true }; };
+  template<>                                                            \
+  struct spmv_eti_spec_avail<const SCALAR_TYPE,                         \
+                             const ORDINAL_TYPE,                        \
+                             Kokkos::Device<EXEC_SPACE_TYPE, MEM_SPACE_TYPE>, \
+                             Kokkos::MemoryTraits<Kokkos::Unmanaged>,   \
+                             const OFFSET_TYPE,                         \
+                             SCALAR_TYPE const*,                        \
+                             LAYOUT_TYPE,                               \
+                             Kokkos::Device<EXEC_SPACE_TYPE, MEM_SPACE_TYPE>, \
+                             Kokkos::MemoryTraits<Kokkos::Unmanaged|Kokkos::RandomAccess>, \
+                             SCALAR_TYPE*,                              \
+                             LAYOUT_TYPE,                               \
+                             Kokkos::Device<EXEC_SPACE_TYPE, MEM_SPACE_TYPE>, \
+                             Kokkos::MemoryTraits<Kokkos::Unmanaged> >  \
+  { enum : bool { value = true }; };
 
 
 #define KOKKOSSPARSE_SPMV_MV_ETI_SPEC_AVAIL( SCALAR_TYPE, ORDINAL_TYPE, OFFSET_TYPE, LAYOUT_TYPE, EXEC_SPACE_TYPE, MEM_SPACE_TYPE ) \
-    template<> \
-    struct spmv_mv_eti_spec_avail <const SCALAR_TYPE, \
-                                       const ORDINAL_TYPE, \
-                                       Kokkos::Device<EXEC_SPACE_TYPE, MEM_SPACE_TYPE>, \
-                                       Kokkos::MemoryTraits<Kokkos::Unmanaged>, \
-                                       const OFFSET_TYPE, \
-                                       SCALAR_TYPE const**, \
-                                       LAYOUT_TYPE, \
-                                       Kokkos::Device<EXEC_SPACE_TYPE, MEM_SPACE_TYPE>, \
-                                       Kokkos::MemoryTraits<Kokkos::Unmanaged|Kokkos::RandomAccess>, \
-                                       SCALAR_TYPE**, \
-                                       LAYOUT_TYPE, \
-                                       Kokkos::Device<EXEC_SPACE_TYPE, MEM_SPACE_TYPE>, \
-                                       Kokkos::MemoryTraits<Kokkos::Unmanaged> > \
-      { enum : bool { value = true }; };
+  template<>                                                            \
+  struct spmv_mv_eti_spec_avail <const SCALAR_TYPE,                     \
+                                 const ORDINAL_TYPE,                    \
+                                 Kokkos::Device<EXEC_SPACE_TYPE, MEM_SPACE_TYPE>, \
+                                 Kokkos::MemoryTraits<Kokkos::Unmanaged>, \
+                                 const OFFSET_TYPE,                     \
+                                 SCALAR_TYPE const**,                   \
+                                 LAYOUT_TYPE,                           \
+                                 Kokkos::Device<EXEC_SPACE_TYPE, MEM_SPACE_TYPE>, \
+                                 Kokkos::MemoryTraits<Kokkos::Unmanaged|Kokkos::RandomAccess>, \
+                                 SCALAR_TYPE**,                         \
+                                 LAYOUT_TYPE,                           \
+                                 Kokkos::Device<EXEC_SPACE_TYPE, MEM_SPACE_TYPE>, \
+                                 Kokkos::MemoryTraits<Kokkos::Unmanaged> > \
+  { enum : bool { value = true }; };
 
 
 // Include the actual specialization declarations

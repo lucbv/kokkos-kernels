@@ -54,6 +54,22 @@ struct spmv_tpl_spec_avail {
   enum : bool { value = false };
 };
 
+#ifdef KOKKOSKERNELS_ENABLE_TPL_CUSPARSE
+template<>
+struct spmv_tpl_spec_avail<double const,  const int, Kokkos::Device<Kokkos::Cuda, Kokkos::CudaSpace>, Kokkos::MemoryTraits<Kokkos::Unmanaged>, int,
+                           double const*, Kokkos::LayoutLeft, Kokkos::Device<Kokkos::Cuda, Kokkos::CudaSpace>, Kokkos::MemoryTraits<Kokkos::Unmanaged|Kokkos::RandomAccess>,
+                           double*, Kokkos::LayoutLeft, Kokkos::Device<Kokkos::Cuda, Kokkos::CudaSpace>, Kokkos::MemoryTraits<Kokkos::Unmanaged>, true, false > {
+  enum : bool { value = true };
+};
+
+template<>
+struct spmv_tpl_spec_avail<double const,  const int, Kokkos::Device<Kokkos::Cuda, Kokkos::CudaSpace>, Kokkos::MemoryTraits<Kokkos::Unmanaged>, int,
+                           double const*, Kokkos::LayoutLeft, Kokkos::Device<Kokkos::Cuda, Kokkos::CudaSpace>, Kokkos::MemoryTraits<Kokkos::Unmanaged|Kokkos::RandomAccess>,
+                           double*, Kokkos::LayoutLeft, Kokkos::Device<Kokkos::Cuda, Kokkos::CudaSpace>, Kokkos::MemoryTraits<Kokkos::Unmanaged>, true, true > {
+  enum : bool { value = true };
+};
+#endif // KOKKOSKERNELS_ENABLE_TPL_CUSPARSE
+
 // Specialization struct which defines whether a specialization exists
 template<class AT, class AO, class AD, class AM, class AS,
          class XT, class XL, class XD, class XM,

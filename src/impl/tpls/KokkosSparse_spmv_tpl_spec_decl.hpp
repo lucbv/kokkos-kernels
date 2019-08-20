@@ -46,6 +46,49 @@
 
 namespace KokkosSparse {
 namespace Impl {
+
+#ifdef KOKKOSKERNELS_ENABLE_TPL_CUSPARSE
+template<>
+struct SPMV<double const,  int const, Kokkos::Device<Kokkos::Cuda, Kokkos::CudaSpace>, Kokkos::MemoryTraits<Kokkos::Unmanaged>, int,
+            double const*, Kokkos::LayoutLeft, Kokkos::Device<Kokkos::Cuda, Kokkos::CudaSpace>, Kokkos::MemoryTraits<Kokkos::Unmanaged|Kokkos::RandomAccess>,
+            double*, Kokkos::LayoutLeft, Kokkos::Device<Kokkos::Cuda, Kokkos::CudaSpace>, Kokkos::MemoryTraits<Kokkos::Unmanaged>, true, false> {
+  using AMatrix = CrsMatrix<double const, int const, Kokkos::Device<Kokkos::Cuda, Kokkos::CudaSpace>, Kokkos::MemoryTraits<Kokkos::Unmanaged>, int const>;
+  using XVector = Kokkos::View<double const*, Kokkos::LayoutLeft, Kokkos::Device<Kokkos::Cuda, Kokkos::CudaSpace>, Kokkos::MemoryTraits<Kokkos::Unmanaged|Kokkos::RandomAccess> >;
+  using YVector = Kokkos::View<double*, Kokkos::LayoutLeft, Kokkos::Device<Kokkos::Cuda, Kokkos::CudaSpace>, Kokkos::MemoryTraits<Kokkos::Unmanaged> >;
+
+  using coefficient_type = typename YVector::non_const_value_type;
+
+  static void spmv (const char mode[],
+                    const coefficient_type& alpha,
+                    const AMatrix& A,
+                    const XVector& x,
+                    const coefficient_type& beta,
+                    const YVector& y) {
+    printf("Using the fake cuSPARSE spmv tpl specialization!\n");
+  }
+};
+
+template<>
+struct SPMV<double const,  int const, Kokkos::Device<Kokkos::Cuda, Kokkos::CudaSpace>, Kokkos::MemoryTraits<Kokkos::Unmanaged>, int const,
+            double const*, Kokkos::LayoutLeft, Kokkos::Device<Kokkos::Cuda, Kokkos::CudaSpace>, Kokkos::MemoryTraits<Kokkos::Unmanaged|Kokkos::RandomAccess>,
+            double*, Kokkos::LayoutLeft, Kokkos::Device<Kokkos::Cuda, Kokkos::CudaSpace>, Kokkos::MemoryTraits<Kokkos::Unmanaged>, true, true> {
+  using AMatrix = CrsMatrix<double const, int const, Kokkos::Device<Kokkos::Cuda, Kokkos::CudaSpace>, Kokkos::MemoryTraits<Kokkos::Unmanaged>, int const>;
+  using XVector = Kokkos::View<double const*, Kokkos::LayoutLeft, Kokkos::Device<Kokkos::Cuda, Kokkos::CudaSpace>, Kokkos::MemoryTraits<Kokkos::Unmanaged|Kokkos::RandomAccess> >;
+  using YVector = Kokkos::View<double*, Kokkos::LayoutLeft, Kokkos::Device<Kokkos::Cuda, Kokkos::CudaSpace>, Kokkos::MemoryTraits<Kokkos::Unmanaged> >;
+
+  using coefficient_type = typename YVector::non_const_value_type;
+
+  static void spmv (const char mode[],
+                    const coefficient_type& alpha,
+                    const AMatrix& A,
+                    const XVector& x,
+                    const coefficient_type& beta,
+                    const YVector& y) {
+    printf("Using the fake cuSPARSE spmv tpl specialization!\n");
+  }
+};
+#endif // KOKKOSKERNELS_ENABLE_TPL_CUSPARSE
+
 }
 }
 
