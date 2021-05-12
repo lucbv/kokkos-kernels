@@ -552,8 +552,7 @@ void mkl2phase_symbolic(
       throw std::runtime_error ("Intel MKL versions > 18 are not yet tested/supported\n");
 #endif
       // Supress -Wunused-parameter on intel-18
-      (void)m;
-      (void)n;
+      (void)m;          (void)n;          (void)k;
       (void)valuesA;
       (void)valuesB;
       (void)valuesC;
