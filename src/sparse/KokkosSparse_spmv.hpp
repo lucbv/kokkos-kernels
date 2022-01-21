@@ -330,10 +330,10 @@ void spmv(KokkosKernels::Experimental::Controls controls, const char mode[],
       typename YVector_Internal::memory_traits
 
   constexpr bool eti_spec_avail =
-      KokkosSparse::Experimental::Impl::spmv_blockcrsmatrix_eti_spec_avail<
+      KokkosSparse::Impl::spmv_blockcrsmatrix_eti_spec_avail<
           __SPMV_TYPES__>::value;
 
-  Experimental::Impl::SPMV_BLOCKCRSMATRIX<
+  Impl::SPMV_BLOCKCRSMATRIX<
       __SPMV_TYPES__, eti_spec_avail>::spmv_blockcrsmatrix(controls, mode,
                                                            alpha, A_i, x_i,
                                                            beta, y_i);
@@ -468,7 +468,7 @@ void spmv(KokkosKernels::Experimental::Controls controls, const char mode[],
             typename AMatrix_Internal::non_const_value_type>::name() +
         "]";
     Kokkos::Profiling::pushRegion(label);
-    Experimental::Impl::SPMV_BSRMATRIX<
+    Impl::SPMV_BSRMATRIX<
         typename AMatrix_Internal::const_value_type,
         typename AMatrix_Internal::const_ordinal_type,
         typename AMatrix_Internal::device_type,
@@ -501,16 +501,16 @@ void spmv(KokkosKernels::Experimental::Controls controls, const char mode[],
       typename YVector_Internal::memory_traits
 
     constexpr bool tpl_spec_avail =
-        KokkosSparse::Experimental::Impl::spmv_bsrmatrix_tpl_spec_avail<
+        KokkosSparse::Impl::spmv_bsrmatrix_tpl_spec_avail<
             __SPMV_TYPES__>::value;
 
     constexpr bool eti_spec_avail =
         tpl_spec_avail
             ? KOKKOSKERNELS_IMPL_COMPILE_LIBRARY /* force FALSE in app/test */
-            : KokkosSparse::Experimental::Impl::spmv_bsrmatrix_eti_spec_avail<
+            : KokkosSparse::Impl::spmv_bsrmatrix_eti_spec_avail<
                   __SPMV_TYPES__>::value;
 
-    Experimental::Impl::SPMV_BSRMATRIX<__SPMV_TYPES__, tpl_spec_avail,
+    Impl::SPMV_BSRMATRIX<__SPMV_TYPES__, tpl_spec_avail,
                                        eti_spec_avail>::spmv_bsrmatrix(controls,
                                                                        mode,
                                                                        alpha,
@@ -861,7 +861,7 @@ void spmv(KokkosKernels::Experimental::Controls controls, const char mode[],
             typename AMatrix_Internal::non_const_value_type>::name() +
         "]";
     Kokkos::Profiling::pushRegion(label);
-    Experimental::Impl::SPMV_MV_BSRMATRIX<
+    Impl::SPMV_MV_BSRMATRIX<
         typename AMatrix_Internal::const_value_type,
         typename AMatrix_Internal::const_ordinal_type,
         typename AMatrix_Internal::device_type,
@@ -878,7 +878,7 @@ void spmv(KokkosKernels::Experimental::Controls controls, const char mode[],
         false>::spmv_mv_bsrmatrix(controls, mode, alpha, A_i, x_i, beta, y_i);
     Kokkos::Profiling::popRegion();
   } else {
-    Experimental::Impl::SPMV_MV_BSRMATRIX<
+    Impl::SPMV_MV_BSRMATRIX<
         typename AMatrix_Internal::const_value_type,
         typename AMatrix_Internal::const_ordinal_type,
         typename AMatrix_Internal::device_type,
@@ -1006,7 +1006,7 @@ void spmv(KokkosKernels::Experimental::Controls controls, const char mode[],
     return spmv(controls, mode, alpha, A_i, x_0, beta, y_0, RANK_ONE());
   }
   //
-  return Experimental::Impl::SPMV_MV_BLOCKCRSMATRIX<
+  return Impl::SPMV_MV_BLOCKCRSMATRIX<
       typename AMatrix_Internal::value_type,
       typename AMatrix_Internal::ordinal_type,
       typename AMatrix_Internal::device_type,

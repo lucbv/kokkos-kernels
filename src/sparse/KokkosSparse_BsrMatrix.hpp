@@ -63,7 +63,6 @@
 #include "KokkosSparse_CrsMatrix.hpp"
 
 namespace KokkosSparse {
-
 namespace Experimental {
 
 template <class MatrixType>

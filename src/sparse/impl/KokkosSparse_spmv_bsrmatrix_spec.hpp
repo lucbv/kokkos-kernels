@@ -55,7 +55,6 @@
 #endif
 
 namespace KokkosSparse {
-namespace Experimental {
 namespace Impl {
 
 // default is no eti available
@@ -74,7 +73,6 @@ struct spmv_mv_bsrmatrix_eti_spec_avail {
 };
 
 }  // namespace Impl
-}  // namespace Experimental
 }  // namespace KokkosSparse
 
 #define KOKKOSSPARSE_SPMV_BSRMATRIX_ETI_SPEC_AVAIL(                       \
@@ -117,7 +115,6 @@ struct spmv_mv_bsrmatrix_eti_spec_avail {
 #include <generated_specializations_hpp/KokkosSparse_spmv_mv_bsrmatrix_eti_spec_avail.hpp>
 
 namespace KokkosSparse {
-namespace Experimental {
 namespace Impl {
 
 // declaration
@@ -128,7 +125,7 @@ template <class AT, class AO, class AD, class AM, class AS, class XT, class XL,
           bool eti_spec_avail = spmv_bsrmatrix_eti_spec_avail<
               AT, AO, AD, AM, AS, XT, XL, XD, XM, YT, YL, YD, YM>::value>
 struct SPMV_BSRMATRIX {
-  typedef BsrMatrix<AT, AO, AD, AM, AS> AMatrix;
+  typedef KokkosSparse::Experimental::BsrMatrix<AT, AO, AD, AM, AS> AMatrix;
   typedef Kokkos::View<XT, XL, XD, XM> XVector;
   typedef Kokkos::View<YT, YL, YD, YM> YVector;
   typedef typename YVector::non_const_value_type YScalar;
@@ -149,7 +146,7 @@ template <class AT, class AO, class AD, class AM, class AS, class XT, class XL,
           bool eti_spec_avail = spmv_mv_bsrmatrix_eti_spec_avail<
               AT, AO, AD, AM, AS, XT, XL, XD, XM, YT, YL, YD, YM>::value>
 struct SPMV_MV_BSRMATRIX {
-  typedef BsrMatrix<AT, AO, AD, AM, AS> AMatrix;
+  typedef KokkosSparse::Experimental::BsrMatrix<AT, AO, AD, AM, AS> AMatrix;
   typedef Kokkos::View<XT, XL, XD, XM> XVector;
   typedef Kokkos::View<YT, YL, YD, YM> YVector;
   typedef typename YVector::non_const_value_type YScalar;
@@ -167,7 +164,7 @@ template <class AT, class AO, class AD, class AM, class AS, class XT, class XL,
           class XD, class XM, class YT, class YL, class YD, class YM>
 struct SPMV_BSRMATRIX<AT, AO, AD, AM, AS, XT, XL, XD, XM, YT, YL, YD, YM, false,
                       KOKKOSKERNELS_IMPL_COMPILE_LIBRARY> {
-  typedef BsrMatrix<AT, AO, AD, AM, AS> AMatrix;
+  typedef KokkosSparse::Experimental::BsrMatrix<AT, AO, AD, AM, AS> AMatrix;
   typedef Kokkos::View<XT, XL, XD, XM> XVector;
   typedef Kokkos::View<YT, YL, YD, YM> YVector;
   typedef typename YVector::non_const_value_type YScalar;
@@ -180,12 +177,12 @@ struct SPMV_BSRMATRIX<AT, AO, AD, AM, AS, XT, XL, XD, XM, YT, YL, YD, YM, false,
     if ((mode[0] == KokkosSparse::NoTranspose[0]) ||
         (mode[0] == KokkosSparse::Conjugate[0])) {
       bool useConjugate = (mode[0] == KokkosSparse::Conjugate[0]);
-      return Bsr::spMatVec_no_transpose(controls, alpha, A, X, beta, Y,
+      return KokkosSparse::Experimental::Impl::Bsr::spMatVec_no_transpose(controls, alpha, A, X, beta, Y,
                                         useConjugate);
     } else if ((mode[0] == KokkosSparse::Transpose[0]) ||
                (mode[0] == KokkosSparse::ConjugateTranspose[0])) {
       bool useConjugate = (mode[0] == KokkosSparse::ConjugateTranspose[0]);
-      return Bsr::spMatVec_transpose(controls, alpha, A, X, beta, Y,
+      return KokkosSparse::Experimental::Impl::Bsr::spMatVec_transpose(controls, alpha, A, X, beta, Y,
                                      useConjugate);
     }
   }
@@ -195,7 +192,7 @@ template <class AT, class AO, class AD, class AM, class AS, class XT, class XL,
           class XD, class XM, class YT, class YL, class YD, class YM>
 struct SPMV_MV_BSRMATRIX<AT, AO, AD, AM, AS, XT, XL, XD, XM, YT, YL, YD, YM,
                          false, false, KOKKOSKERNELS_IMPL_COMPILE_LIBRARY> {
-  typedef BsrMatrix<AT, AO, AD, AM, AS> AMatrix;
+  typedef KokkosSparse::Experimental::BsrMatrix<AT, AO, AD, AM, AS> AMatrix;
   typedef Kokkos::View<XT, XL, XD, XM> XVector;
   typedef Kokkos::View<YT, YL, YD, YM> YVector;
   typedef typename YVector::non_const_value_type YScalar;
@@ -288,12 +285,12 @@ struct SPMV_MV_BSRMATRIX<AT, AO, AD, AM, AS, XT, XL, XD, XM, YT, YL, YD, YM,
     if ((mode[0] == KokkosSparse::NoTranspose[0]) ||
         (mode[0] == KokkosSparse::Conjugate[0])) {
       bool useConjugate = (mode[0] == KokkosSparse::Conjugate[0]);
-      return Bsr::spMatMultiVec_no_transpose(controls, alpha, A, X, beta, Y,
+      return KokkosSparse::Experimental::Impl::Bsr::spMatMultiVec_no_transpose(controls, alpha, A, X, beta, Y,
                                              useConjugate);
     } else if ((mode[0] == KokkosSparse::Transpose[0]) ||
                (mode[0] == KokkosSparse::ConjugateTranspose[0])) {
       bool useConjugate = (mode[0] == KokkosSparse::ConjugateTranspose[0]);
-      return Bsr::spMatMultiVec_transpose(controls, alpha, A, X, beta, Y,
+      return KokkosSparse::Experimental::Impl::Bsr::spMatMultiVec_transpose(controls, alpha, A, X, beta, Y,
                                           useConjugate);
     }
   }
@@ -303,7 +300,7 @@ template <class AT, class AO, class AD, class AM, class AS, class XT, class XL,
           class XD, class XM, class YT, class YL, class YD, class YM>
 struct SPMV_MV_BSRMATRIX<AT, AO, AD, AM, AS, XT, XL, XD, XM, YT, YL, YD, YM,
                          true, false, KOKKOSKERNELS_IMPL_COMPILE_LIBRARY> {
-  typedef BsrMatrix<AT, AO, AD, AM, AS> AMatrix;
+  typedef KokkosSparse::Experimental::BsrMatrix<AT, AO, AD, AM, AS> AMatrix;
   typedef Kokkos::View<XT, XL, XD, XM> XVector;
   typedef Kokkos::View<YT, YL, YD, YM> YVector;
   typedef typename YVector::non_const_value_type YScalar;
@@ -328,7 +325,6 @@ struct SPMV_MV_BSRMATRIX<AT, AO, AD, AM, AS, XT, XL, XD, XM, YT, YL, YD, YM,
 #endif  // !defined(KOKKOSKERNELS_ETI_ONLY) ||
         // KOKKOSKERNELS_IMPL_COMPILE_LIBRARY
 }  // namespace Impl
-}  // namespace Experimental
 }  // namespace KokkosSparse
 
 // declare / instantiate the vector version
