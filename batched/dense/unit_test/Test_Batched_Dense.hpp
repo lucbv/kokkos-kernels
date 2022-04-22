@@ -22,8 +22,20 @@
 #include "Test_Batched_SerialAxpy_Complex.hpp"
 #include "Test_Batched_SerialEigendecomposition.hpp"
 #include "Test_Batched_SerialEigendecomposition_Real.hpp"
+<<<<<<< HEAD:batched/dense/unit_test/Test_Batched_Dense.hpp
 #include "Test_Batched_SerialGesv.hpp"
 #include "Test_Batched_SerialGesv_Real.hpp"
+=======
+#include "Test_Batched_SerialGemm.hpp"
+#include "Test_Batched_SerialGemm_Real.hpp"
+#include "Test_Batched_SerialGemm_Complex.hpp"
+#include "Test_Batched_BatchedGemm.hpp"
+#include "Test_Batched_BatchedGemm_Real.hpp"
+#include "Test_Batched_BatchedGemm_Complex.hpp"
+#include "Test_Batched_SerialGemv.hpp"
+#include "Test_Batched_SerialGemv_Real.hpp"
+#include "Test_Batched_SerialGemv_Complex.hpp"
+>>>>>>> 50f8fb443 (Added clean files from ODESolve branch.):unit_test/batched/dense/Test_Batched_Dense.hpp
 #include "Test_Batched_SerialInverseLU.hpp"
 #include "Test_Batched_SerialInverseLU_Real.hpp"
 #include "Test_Batched_SerialInverseLU_Complex.hpp"
