@@ -36,41 +36,64 @@
 // NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
 // SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 //
-// Questions? Contact Jennifer Loe (jloe@sandia.gov)
+// Questions? Contact Luc Berger-Vergiat (lberge@sandia.gov)
 //
 // ************************************************************************
 //@HEADER
 */
 
-#ifndef __KOKKOSBATCHED_ODE_RKSOLVE_HPP__
-#define __KOKKOSBATCHED_ODE_RKSOLVE_HPP__
+#ifndef __KOKKOSBATCHED_ODE_SOLVER_HPP__
+#define __KOKKOSBATCHED_ODE_SOLVER_HPP__
 
-#include <Kokkos_ArithTraits.hpp>
-#include "Kokkos_Layout.hpp"
-#include "Kokkos_MemoryTraits.hpp"
-
-#include <KokkosBatched_ODE_Args.hpp>
-#include <KokkosBatched_ODE_RungeKuttaTables.hpp>
-#include <KokkosBatched_ODE_SolverStatus.hpp>
-
-#include <type_traits>
+#include "KokkosBatched_ODE_RungeKuttaTables.hpp"
+#include "KokkosBatched_ODE_Args.hpp"
+#include "KokkosBatched_ODE_RKSolve.hpp"
 
 namespace KokkosBatched {
 namespace Experimental {
 namespace ODE {
 
-struct SerialRKSolve {
-  template <typename TableType, typename ODEType, typename ViewTypeA, typename ViewTypeB>
-  KOKKOS_FUNCTION static ODESolverStatus invoke(
-      const TableType table, const ODEType &ode, const ODEArgs &args, ViewTypeA &y, ViewTypeA &y0,
-      ViewTypeA &dydt, ViewTypeA &ytemp, ViewTypeB &kstack, double tstart,
-      double tend);
+enum class ODE_solver_type : unsigned {
+  RK    = 0,
+  BDFS  = 1,
+  ADAMS = 2
 };
 
-}  // namespace ODE
-}  // namespace Experimental
-}  // namespace KokkosBatched
 
-#include "KokkosBatched_ODE_RKSolve_Impl.hpp"
+// clang-format off
+/// \brief Generic interface for the ODESolvers
+// clang-format on
+template <ODE_solver_type type>
+struct ODESolver {
 
-#endif
+  KOKKOS_FUNCTION static void invoke() {
+    // Can switch to a Kokkos::abort("msg") call
+    printf("This ODE solver type is not supported!\n");
+  }
+
+};
+
+template <>
+struct ODESolver<ODE_solver_type::RK> {
+
+  template <typename ODEType, typename vec_view, typename stack_type>
+  KOKKOS_FUNCTION static ODESolverStatus invoke(ODEType& ode, ODEArgs& args,
+                                                vec_view& y, vec_view& y0,
+                                                vec_view& f, vec_view& ytmp,
+                                                stack_type& stack,
+                                                const double t0,
+                                                const double tn) {
+
+    ButcherTableau<1, 1> table;
+    return SerialRKSolve::invoke(table, ode, args, y, y0, f, ytmp, stack, t0, tn);
+  }
+
+};
+
+} // namespace ODE
+} // namespace Experimental
+} // namespace KokkosBatched
+
+#include "KokkosBatched_ODE_BDFS_Impl.hpp"
+
+#endif // __KOKKOSBATCHED_ODE_SOLVER_HPP__

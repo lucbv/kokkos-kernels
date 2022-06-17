@@ -31,11 +31,13 @@ void scratch_kernel(const ODEType &ode, const ODEArgs &args, const int nelems) {
         SolverState s;
         s.set_views(team.team_scratch(0), ode.neqs, TableType::nstages);
 
+        TableType table;
+
         for (int dof = 0; dof < ode.neqs; ++dof) {
           s.y[dof] = ode.expected_val(ode.tstart(), dof);
         }
 
-        SerialRKSolve<TableType>::invoke(ode, args, s.y, s.y0, s.dydt, s.ytemp,
+        SerialRKSolve::invoke(table, ode, args, s.y, s.y0, s.dydt, s.ytemp,
                                          s.k, ode.tstart(), ode.tend());
       });
   Kokkos::fence();
@@ -53,13 +55,15 @@ void kernel(const RkDynamicAllocation<MemorySpace> &pool, const ODEType &ode,
         SolverState s;
         s.set_views(stack, pool, elem);
 
+        TableType table;
+
         const int ndofs = static_cast<int>(s.y.extent(0));
 
         for (int dof = 0; dof < ndofs; ++dof) {
           s.y[dof] = ode.expected_val(ode.tstart(), dof);
         }
 
-        SerialRKSolve<TableType>::invoke(ode, args, s.y, s.y0, s.dydt, s.ytemp,
+        SerialRKSolve::invoke(table, ode, args, s.y, s.y0, s.dydt, s.ytemp,
                                          s.k, ode.tstart(), ode.tend());
       });
   Kokkos::fence();
@@ -130,22 +134,22 @@ void run_enright_scratch(const int nelems) {
 
 template <typename MemorySpace>
 void run_all_tables_scratch(const int nelems) {
-  run_enright_scratch<MemorySpace, RKEH>(nelems);
-  run_enright_scratch<MemorySpace, RK12>(nelems);
-  run_enright_scratch<MemorySpace, BS>(nelems);
-  run_enright_scratch<MemorySpace, RKF45>(nelems);
-  run_enright_scratch<MemorySpace, CashKarp>(nelems);
-  run_enright_scratch<MemorySpace, DormandPrince>(nelems);
+  run_enright_scratch<MemorySpace, ButcherTableau<1,1> >(nelems);
+  run_enright_scratch<MemorySpace, ButcherTableau<1,2> >(nelems);
+  run_enright_scratch<MemorySpace, ButcherTableau<2,3> >(nelems);
+  run_enright_scratch<MemorySpace, ButcherTableau<4,5> >(nelems);
+  run_enright_scratch<MemorySpace, ButcherTableau<4,5,1> >(nelems);
+  run_enright_scratch<MemorySpace, ButcherTableau<4,6> >(nelems);
 }
 
 template <typename MemorySpace>
 void run_all_tables(const bool use_stack, const int nelems) {
-  run_enright<MemorySpace, RKEH>(use_stack, nelems);
-  run_enright<MemorySpace, RK12>(use_stack, nelems);
-  run_enright<MemorySpace, BS>(use_stack, nelems);
-  run_enright<MemorySpace, RKF45>(use_stack, nelems);
-  run_enright<MemorySpace, CashKarp>(use_stack, nelems);
-  run_enright<MemorySpace, DormandPrince>(use_stack, nelems);
+  run_enright<MemorySpace, ButcherTableau<1,1> >(use_stack, nelems);
+  run_enright<MemorySpace, ButcherTableau<1,2> >(use_stack, nelems);
+  run_enright<MemorySpace, ButcherTableau<2,3> >(use_stack, nelems);
+  run_enright<MemorySpace, ButcherTableau<4,5> >(use_stack, nelems);
+  run_enright<MemorySpace, ButcherTableau<4,5,1> >(use_stack, nelems);
+  run_enright<MemorySpace, ButcherTableau<4,6> >(use_stack, nelems);
 }
 
 }  // namespace ODE

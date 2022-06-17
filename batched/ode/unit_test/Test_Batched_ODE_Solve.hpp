@@ -2,6 +2,7 @@
 
 #include <gtest/gtest.h>
 
+#include <KokkosBatched_ODE_Solver.hpp>
 #include <KokkosBatched_ODE_RKSolve.hpp>
 #include <KokkosBatched_ODE_TestProblems.hpp>
 #include <KokkosBatched_ODE_Args.hpp>
@@ -17,6 +18,7 @@ void kernel(int nelems, const ODEType &ode, ODEArgs &args, double tstart,
             double tend, const int ndofs,
             const RkDynamicAllocation<MemorySpace> &pool) {
   int glob_status = 0;
+  TableType table;
 
   Kokkos::parallel_reduce(
       "ODESolverKernel",
@@ -30,8 +32,8 @@ void kernel(int nelems, const ODEType &ode, ODEArgs &args, double tstart,
           s.y[dof] = ode.expected_val(ode.tstart(), dof);
         }
 
-        auto thread_status = static_cast<int>(SerialRKSolve<TableType>::invoke(
-            ode, args, s.y, s.y0, s.dydt, s.ytemp, s.k, tstart, tend));
+        auto thread_status = static_cast<int>(SerialRKSolve::invoke(
+            table, ode, args, s.y, s.y0, s.dydt, s.ytemp, s.k, tstart, tend));
         status             = thread_status > status ? thread_status : status;
 
         for (int dof = 0; dof < ndofs; ++dof) {
@@ -175,17 +177,17 @@ void run_all_rks_verify(const bool use_stack, const int nelems, ODEArgs &args,
                         const std::vector<char> &do_conv = {true, true, true,
                                                             true, true, true},
                         ErrorCheck<ODEType> check = error_check<ODEType>) {
-  RKTest<MemorySpace, RKEH, ODEType, NDOFS> t1(use_stack, nelems, args, ode,
+  RKTest<MemorySpace, ButcherTableau<1,1>,   ODEType, NDOFS> t1(use_stack, nelems, args, ode,
                                                check, do_conv[0]);
-  RKTest<MemorySpace, RK12, ODEType, NDOFS> t2(use_stack, nelems, args, ode,
+  RKTest<MemorySpace, ButcherTableau<1,2>,   ODEType, NDOFS> t2(use_stack, nelems, args, ode,
                                                check, do_conv[1]);
-  RKTest<MemorySpace, BS, ODEType, NDOFS> t3(use_stack, nelems, args, ode,
+  RKTest<MemorySpace, ButcherTableau<2,3>,   ODEType, NDOFS> t3(use_stack, nelems, args, ode,
                                              check, do_conv[2]);
-  RKTest<MemorySpace, RKF45, ODEType, NDOFS> t4(use_stack, nelems, args, ode,
+  RKTest<MemorySpace, ButcherTableau<4,5>,   ODEType, NDOFS> t4(use_stack, nelems, args, ode,
                                                 check, do_conv[3]);
-  RKTest<MemorySpace, CashKarp, ODEType, NDOFS> t5(use_stack, nelems, args, ode,
+  RKTest<MemorySpace, ButcherTableau<4,5,1>, ODEType, NDOFS> t5(use_stack, nelems, args, ode,
                                                    check, do_conv[4]);
-  RKTest<MemorySpace, DormandPrince, ODEType, NDOFS> t6(use_stack, nelems, args,
+  RKTest<MemorySpace, ButcherTableau<4,6>,   ODEType, NDOFS> t6(use_stack, nelems, args,
                                                         ode, check, do_conv[5]);
 
   t1.run();
@@ -237,17 +239,17 @@ void run_all_rks_adapt(const bool use_stack, const int nelems, ODEArgs &args,
                        const ODEType &ode, const double rel_tol = 0.0,
                        const double abs_tol      = 0.0,
                        ErrorCheck<ODEType> check = empty_check<ODEType>) {
-  RKTest<MemorySpace, RKEH, ODEType, NDOFS> t1(use_stack, nelems, args, ode,
+  RKTest<MemorySpace, ButcherTableau<1,1>, ODEType, NDOFS> t1(use_stack, nelems, args, ode,
                                                check, false, rel_tol, abs_tol);
-  RKTest<MemorySpace, RK12, ODEType, NDOFS> t2(use_stack, nelems, args, ode,
+  RKTest<MemorySpace, ButcherTableau<1,2>, ODEType, NDOFS> t2(use_stack, nelems, args, ode,
                                                check, false, rel_tol, abs_tol);
-  RKTest<MemorySpace, BS, ODEType, NDOFS> t3(use_stack, nelems, args, ode,
+  RKTest<MemorySpace, ButcherTableau<2,3>, ODEType, NDOFS> t3(use_stack, nelems, args, ode,
                                              check, false, rel_tol, abs_tol);
-  RKTest<MemorySpace, RKF45, ODEType, NDOFS> t4(use_stack, nelems, args, ode,
+  RKTest<MemorySpace, ButcherTableau<4,5>, ODEType, NDOFS> t4(use_stack, nelems, args, ode,
                                                 check, false, rel_tol, abs_tol);
-  RKTest<MemorySpace, CashKarp, ODEType, NDOFS> t5(
+  RKTest<MemorySpace, ButcherTableau<4,5,1>, ODEType, NDOFS> t5(
       use_stack, nelems, args, ode, check, false, rel_tol, abs_tol);
-  RKTest<MemorySpace, DormandPrince, ODEType, NDOFS> t6(
+  RKTest<MemorySpace, ButcherTableau<4,6>, ODEType, NDOFS> t6(
       use_stack, nelems, args, ode, check, false, rel_tol, abs_tol);
 
   t1.run();
@@ -322,8 +324,9 @@ TEST_F(TestCategory, ODE_RKAdaptiveTests) {
 
 TEST_F(TestCategory, ODE_RKSolverStatus) {
   constexpr int ndofs = 1;
-  using TableType     = RKEH;
+  using TableType     = ButcherTableau<1,1>;
   using Stack         = RkStack<ndofs, TableType::nstages>;
+  TableType table;
   Exponential ode(ndofs, -10);
   double tstart = 0.0;
   double tend   = 1.0;
@@ -336,7 +339,7 @@ TEST_F(TestCategory, ODE_RKSolverStatus) {
     ODEArgs args;
     state.y[0] = std::numeric_limits<double>::quiet_NaN();
 
-    auto status = SerialRKSolve<TableType>::invoke(ode, args, state.y, state.y0,
+    auto status = SerialRKSolve::invoke(table, ode, args, state.y, state.y0,
                                                    state.dydt, state.ytemp,
                                                    state.k, tstart, tend);
     EXPECT_TRUE(status == ODESolverStatus::NONFINITE_STATE);
@@ -347,7 +350,7 @@ TEST_F(TestCategory, ODE_RKSolverStatus) {
   {
     ODEArgs args;
     args.maxSubSteps = 3;
-    auto status = SerialRKSolve<TableType>::invoke(ode, args, state.y, state.y0,
+    auto status = SerialRKSolve::invoke(table, ode, args, state.y, state.y0,
                                                    state.dydt, state.ytemp,
                                                    state.k, tstart, tend);
     EXPECT_TRUE(status == ODESolverStatus::FAILED_TO_CONVERGE);
@@ -356,7 +359,7 @@ TEST_F(TestCategory, ODE_RKSolverStatus) {
   {
     ODEArgs args;
     args.minStepSize = 1.0;
-    auto status = SerialRKSolve<TableType>::invoke(ode, args, state.y, state.y0,
+    auto status = SerialRKSolve::invoke(table, ode, args, state.y, state.y0,
                                                    state.dydt, state.ytemp,
                                                    state.k, tstart, tend);
     EXPECT_TRUE(status == ODESolverStatus::MINIMUM_TIMESTEP_REACHED);
@@ -388,10 +391,10 @@ void check_single_step(const double dt, const TableType &table,
 TEST_F(TestCategory, ODE_RKSingleStep) {
   constexpr int ndofs = 2;
   using Arr           = Kokkos::Array<double, ndofs>;
-  using Stack         = RkStack<ndofs, RKF45::nstages>;
+  using Stack         = RkStack<ndofs, ButcherTableau<4,5>::nstages>;
   SpringMassDamper ode(ndofs, 1001, 1000.);
   ODEArgs args = ODEArgs();
-  RKF45 table;
+  ButcherTableau<4,5> table;
 
   const double t0 = 0.1;
   const double dt = 1e-3;
@@ -407,7 +410,7 @@ TEST_F(TestCategory, ODE_RKSingleStep) {
   SerialRKSolveInternal::step(ode, table, t0, dt, state.y, state.y0,
                               state.ytemp, state.k, args, est_err);
 
-  Kokkos::Array<Arr, RKF45::nstages> ke{};
+  Kokkos::Array<Arr, ButcherTableau<4,5>::nstages> ke{};
 
   Arr tmp;
   ode.derivatives(t0, y0, ke[0]);
@@ -437,6 +440,38 @@ TEST_F(TestCategory, ODE_RKSingleStep) {
 
   check_single_step(dt, table, state, ke);
 }
+
+template <typename execution_space, typename scalar_type>
+int test_ode_solver() {
+
+  using ode_solver_type  = KokkosBatched::Experimental::ODE::ODE_solver_type;
+  using vec_type = Kokkos::View<scalar_type*, execution_space>;
+
+  LucP1 ode{};
+
+  ODEArgs args;
+
+  vec_type x("Solution", 2);
+  vec_type x0("Initial values", 2);
+  vec_type tmp("tmp", 2);
+  vec_type f("Derivatives", 2);
+
+  RkStack<2, ButcherTableau<1,1>::nstages> stack;
+  RkSolverState<RkStack<2, ButcherTableau<1,1>::nstages> > state;
+  state.set_views(stack);
+
+  ODESolver<ode_solver_type::RK> myODESolver;
+  myODESolver.invoke(ode, args, state.y, state.y0, state.dydt, state.ytemp,
+                     state.k, 0, 1.0);
+
+  return 0;
+}
+
+#if defined(KOKKOSKERNELS_INST_DOUBLE)
+TEST_F(TestCategory, ODE_Solver) {
+  test_ode_solver<TestExecSpace, double>();
+}
+#endif
 
 }  // namespace ODE
 }  // namespace Experimental

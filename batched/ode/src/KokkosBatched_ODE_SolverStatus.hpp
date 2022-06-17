@@ -49,6 +49,7 @@
 namespace KokkosBatched {
 namespace Experimental {
 namespace ODE {
+
 enum class ODESolverStatus {
   SUCCESS = 0,
   FAILED_TO_CONVERGE,
@@ -67,6 +68,7 @@ std::ostream& operator<<(std::ostream& os, ODESolverStatus& status) {
   }
   return os;
 }
+
 }  // namespace ODE
 }  // namespace Experimental
 }  // namespace KokkosBatched

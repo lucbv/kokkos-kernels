@@ -83,10 +83,14 @@ namespace ODE {
 // The array of aij coefficients is ordered by rows as: a =
 // {a00,a10,a11,a20,a21,a22....}
 
-struct RKEH  // Euler Huen Method
+template <int order, int nstages, int variant = 0>
+struct ButcherTableau { };
+
+template <>
+struct ButcherTableau<1, 1>  // Euler Huen Method
 {
-  static constexpr int nstages = 2;  // total dimensions, nstagesxnstages system
   static constexpr int order   = 2;
+  static constexpr int nstages = 2;  // total dimensions, nstagesxnstages system
   Kokkos::Array<double, (nstages * nstages + nstages) / 2> a{
       {0.0, 1.0,
        0.0}};  //(nstages*nstages+nstages)/2 size of lower triangular matrix
@@ -95,10 +99,11 @@ struct RKEH  // Euler Huen Method
   Kokkos::Array<double, nstages> e{{-0.5, 0.5}};
 };
 
-struct RK12  // Known as Fehlberg 1-2 method
+template <>
+struct ButcherTableau<1, 2>  // Known as Fehlberg 1-2 method
 {
-  static constexpr int nstages = 3;
   static constexpr int order   = 2;
+  static constexpr int nstages = 3;
   Kokkos::Array<double, (nstages * nstages + nstages) / 2> a{
       {0.0, 0.5, 0.0, 1.0 / 256.0, 255.0 / 256.0, 0.0}};
   Kokkos::Array<double, nstages> b{{1.0 / 512.0, 255.0 / 256.0, 1. / 512}};
@@ -107,10 +112,11 @@ struct RK12  // Known as Fehlberg 1-2 method
       {1.0 / 256.0 - 1.0 / 512.0, 0.0, -1.0 / 512.0}};
 };
 
-struct BS  // Bogacki-Shampine method
+template <>
+struct ButcherTableau<2, 3>  // Bogacki-Shampine method
 {
-  static constexpr int nstages = 4;
   static constexpr int order   = 3;
+  static constexpr int nstages = 4;
   Kokkos::Array<double, (nstages * nstages + nstages) / 2> a{
       {0.0, 0.5, 0.0, 0.0, 3.0 / 4.0, 0.0, 2.0 / 9.0, 1.0 / 3.0, 4.0 / 9.0,
        0.0}};
@@ -120,10 +126,11 @@ struct BS  // Bogacki-Shampine method
                                     4.0 / 9.0 - 1.0 / 3.0, -1.0 / 8.0}};
 };
 
-struct RKF45  // Fehlberg Method
+template <>
+struct ButcherTableau<4, 5>  // Fehlberg Method
 {
-  static constexpr int nstages = 6;
   static constexpr int order   = 5;
+  static constexpr int nstages = 6;
   Kokkos::Array<double, (nstages * nstages + nstages) / 2> a{{0.0,
                                                               0.25,
                                                               0.0,
@@ -155,9 +162,11 @@ struct RKF45  // Fehlberg Method
        28561.0 / 56430.0 - 2197.0 / 4104.0, -9.0 / 50.0 + 0.2, 2.0 / 55.0}};
 };
 
-struct CashKarp {
-  static constexpr int nstages = 6;
+template <>
+struct ButcherTableau<4, 5, 1>  // Cash-Karp
+{
   static constexpr int order   = 5;
+  static constexpr int nstages = 6;
   Kokkos::Array<double, (nstages * nstages + nstages) / 2> a{
       {0.0,
        0.2,
@@ -189,10 +198,11 @@ struct CashKarp {
                                     -277.0 / 14336.0, 512.0 / 1771.0 - 0.25}};
 };
 
-struct DormandPrince  // Referred to as DOPRI5
+template <>
+struct ButcherTableau<4, 6> // Referred to as DOPRI5 or RKDP
 {
-  static constexpr int nstages = 7;
   static constexpr int order   = 5;
+  static constexpr int nstages = 7;
   Kokkos::Array<double, (nstages * nstages + nstages) / 2> a{{0.0,
                                                               0.2,
                                                               0.0,
@@ -230,6 +240,7 @@ struct DormandPrince  // Referred to as DOPRI5
        125.0 / 192.0 - 393.0 / 640.0, -2187.0 / 6784.0 + 92097.0 / 339200.0,
        11.0 / 84.0 - 187.0 / 2100.0, -1.0 / 40.0}};
 };
+
 }  // namespace ODE
 }  // namespace Experimental
 }  // namespace KokkosBatched

@@ -458,6 +458,49 @@ struct EnrightD4 {
   const int neqs;
 };
 
+// Luc Berger-Vergiat, problem 1
+// two coupled linear equations
+// dx/dt = M*x
+// M = [-3  1]
+//     [ 4 -3]
+// with x_0 = [3]
+//            [2]
+// solution x = [2*exp(-t) + exp(-5*t)]
+//              [4*exp(-t) - 2*exp(-5*t)]
+template <typename scalar_type, typename execution_space>
+struct LucP1 {
+  using vec_type = Kokkos::View<scalar_type*, execution_space>;
+  using mat_type = Kokkos::View<scalar_type**, execution_space>;
+
+  const int neqs = 2;
+
+  LucP1() {}
+
+  KOKKOS_FUNCTION void derivatives(const scalar_type /*t*/, vec_type& y, dmat_typeView2& dydt) const {
+    dydt(0) = -3 * y(0) + y(1);
+    dydt(1) =  4 * y(0) - 3 * y(1);
+  }
+
+  KOKKOS_FUNCTION void jacobian(const scalar_type /*t*/, view_type& /*y*/, mat_type& jac) const {
+    jac(0,0) = -3; jac(0,1) =  1;
+    jac(1,0) =  4; jac(1,1) = -3;
+  }
+
+  KOKKOS_FUNCTION scalar_type expected_val(const scalar_type t, const int n) const {
+    using Kokkos::exp;
+
+    double val = 0.0;
+    if (n == 0) {
+      val = 2*exp(-t) + exp(-5*t);
+    } else if (n == 1) {
+      val = 4*exp(-t) - 2*exp(-5*t);
+    }
+    return val;
+  }
+
+  KOKKOS_FUNCTION int num_equations() const { return neqs; }
+};
+
 }  // namespace ODE
 }  // namespace Experimental
 }  // namespace KokkosBatched

@@ -133,17 +133,14 @@ struct SerialRKSolveInternal {
 // RKSolve impl:
 //=====================================================================
 
-template <typename TableType>
-template <typename ODEType, typename ViewTypeA, typename ViewTypeB>
-KOKKOS_FUNCTION ODESolverStatus SerialRKSolve<TableType>::invoke(
-    const ODEType &ode, const ODEArgs &args_, ViewTypeA &y, ViewTypeA &y0,
-    ViewTypeA &dydt, ViewTypeA &ytemp, ViewTypeB &kstack, double tstart,
-    double tend) {
+template <typename TableType, typename ODEType, typename ViewTypeA, typename ViewTypeB>
+KOKKOS_FUNCTION ODESolverStatus SerialRKSolve::
+invoke(const TableType table, const ODEType &ode, const ODEArgs &args_,
+       ViewTypeA &y, ViewTypeA &y0, ViewTypeA &dydt, ViewTypeA &ytemp,
+       ViewTypeB &kstack, double tstart, double tend) {
   using Kokkos::fmax;
   using Kokkos::fmin;
   using Kokkos::pow;
-
-  TableType table;
 
   double epsilon = Kokkos::Experimental::epsilon<double>::value;
   // args checks for valid arguments.
