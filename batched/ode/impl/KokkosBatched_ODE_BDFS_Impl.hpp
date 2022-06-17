@@ -42,6 +42,11 @@
 //@HEADER
 */
 
+#ifndef __KOKKOSBATCHED_ODE_BDFS_IMPL_HPP__
+#define __KOKKOSBATCHED_ODE_BDFS_IMPL_HPP__
+
+#include "KokkosBatched_ODE_Newton.hpp"
+
 namespace KokkosBatched {
 namespace Experimental {
 namespace ODE {
@@ -55,7 +60,7 @@ struct BDF1_system {
   ODEType ode;
   scalar_type t, dt;
 
-  BDFS_system(ODEType ode_, const scalar_type t_, const scalar_type dt_)
+  BDF1_system(ODEType ode_, const scalar_type t_, const scalar_type dt_)
     : ode(ode_), t(t_), dt(dt_) {};
 
   KOKKOS_FUNCTION void jacobian(const vec_type y,
@@ -100,22 +105,22 @@ struct ODESolver<ODE_solver_type::BDFS> {
     using scalar_type = typename ODEType::scalar_type;
     using vec_type    = typename ODEType::vec_type;
     using mat_type    = typename ODEType::mat_type;
-    using norm_type   = Kokkos::ArithTraits<typename ODEType::scalar_type>::mag_type;
+    using norm_type   = typename Kokkos::ArithTraits<scalar_type>::mag_type;
     using handle_type = NewtonHandle<norm_type>;
 
     scalar_type t  = t0;
     scalar_type dt = (tn - t0) / args.num_substeps;
     Kokkos::deep_copy(y, y0);
 
-    for(int step = 0; int step < args.num_substeps; ++step) {
+    for(int step = 0; step < args.num_substeps; ++step) {
       // Create a BDF1_system that is in charge
       // of computing the residual and jacobian
       // needed by the Newton solver.
       BDF1_system sys(ode, t, dt);
 
       handle_type handle;
-      NewtonFunctor<BDF1_system, mat_type, vec_type, vec_type, handle_type>
-        newton(sys, y, r, handle);
+      NewtonFunctor<BDF1_system<ODEType>, mat_type, vec_type, vec_type, handle_type>
+        newton(sys, y, f, handle);
 
       t += dt;
     }
@@ -128,3 +133,5 @@ struct ODESolver<ODE_solver_type::BDFS> {
 }
 }
 }
+
+#endif // __KOKKOSBATCHED_ODE_BDFS_IMPL_HPP__

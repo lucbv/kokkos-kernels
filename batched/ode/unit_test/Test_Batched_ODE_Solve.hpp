@@ -447,7 +447,7 @@ int test_ode_solver() {
   using ode_solver_type  = KokkosBatched::Experimental::ODE::ODE_solver_type;
   using vec_type = Kokkos::View<scalar_type*, execution_space>;
 
-  LucP1 ode{};
+  LucP1<scalar_type, execution_space> ode{};
 
   ODEArgs args;
 

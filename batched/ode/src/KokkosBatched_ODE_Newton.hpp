@@ -50,10 +50,9 @@
 #include "KokkosBatched_LU_Serial_Impl.hpp"
 #include "KokkosBatched_Scale_Decl.hpp"
 #include "KokkosBatched_Gesv.hpp"
-// #include "KokkosBatched_Dot.hpp"
-// #include "KokkosBatched_Axpy.hpp"
-#include "KokkosBlasDevice_dot_impl.hpp"
+#include "KokkosBlasDevice_nrm2_impl.hpp"
 #include "KokkosBlasDevice_axpy_impl.hpp"
+#include "KokkosBlasDevice_scale_impl.hpp"
 
 enum class NewtonSolverStatus { Converged = 0, LinearSolveFailure, MaxIters };
 
@@ -156,22 +155,20 @@ using norm_type       = typename NewtonHandleType::norm_type;
 
   KOKKOS_INLINE_FUNCTION
   NewtonSolverStatus operator()(int /* idx */) const {
-    alpha(0)               = -1.0 * Kokkos::ArithTraits<yvalue_type>::one();
+    alpha(0)               = Kokkos::ArithTraits<yvalue_type>::one();
     handle.lastResidual(0) = -1;  // init to dummy value
 
     // Iterate until maxIts or the tolerance is reached
     for (int it = 0; it < handle.maxIters; ++it) {
       // compute initial rhs
       sys.derivatives(0, x, rhs);
-      KOKKOS_IMPL_DO_NOT_USE_PRINTF("Derivatives: rhs={%f, %f}\n",
-                                    rhs(0), rhs(1));
+
       // Solve the following linearized
       // problem at each step: J*update=rhs
       // with J=du/dx, rhs=f(u_n+update)-f(u_n)
-      KokkosBlas::Experimental::Device::SerialDot::invoke(rhs, rhs, norm);
-      // norm(0) = Kokkos::ArithTraits<norm_type>::sqrt(norm(0));
-      // handle.(lastResidual(0)) = norm(0);
-      handle.lastResidual(0) = Kokkos::ArithTraits<norm_type>::sqrt(norm(0));
+      KokkosBlas::Experimental::Device::SerialNrm2::invoke(rhs, norm);
+      handle.lastResidual(0) = norm(0);
+
       if (handle.debug_mode) {
         KOKKOS_IMPL_DO_NOT_USE_PRINTF(
             "NewtonFunctor: Iteration: %d  Current res norm is: %e \n Current "
@@ -183,6 +180,7 @@ using norm_type       = typename NewtonHandleType::norm_type;
           // KOKKOS_IMPL_DO_NOT_USE_PRINTF("%f \n", x(0, k));
         }
       }
+
       if (norm(0) < handle.relativeTol) {
         // Problem solved, exit the functor
         if (handle.debug_mode) {
@@ -202,24 +200,19 @@ using norm_type       = typename NewtonHandleType::norm_type;
       // compute LHS
       sys.jacobian(0, x, J);
 
-      printf("Jacobian: [%f   %f]\n",J(0,0), J(0,1));
-      printf("          [%f   %f]\n",J(1,0), J(1,1));
-
       // solve linear problem
-      // auto A            = Kokkos::subview(J, 0, Kokkos::ALL, Kokkos::ALL);
-      // auto u            = Kokkos::subview(update, 0, Kokkos::ALL);
-      // auto b            = Kokkos::subview(rhs, 0, Kokkos::ALL);
-      // auto tmp2         = Kokkos::subview(tmp, 0, Kokkos::ALL, Kokkos::ALL);
-      // int linSolverStat = KokkosBatched::SerialGesv<
-      //   KokkosBatched::Gesv::StaticPivoting>::invoke(A, u, b, tmp2);
       int linSolverStat = KokkosBatched::SerialGesv<
         KokkosBatched::Gesv::StaticPivoting>::invoke(J, update, rhs, tmp);
+      KokkosBlas::Experimental::Device::SerialScale::invoke(-1, update);
+
+      // update state of variables if needed
+      sys.update_state(update);
 
       if (handle.debug_mode) {
         KOKKOS_IMPL_DO_NOT_USE_PRINTF(
                                       "NewtonFunctor: Print linear solve solution: \n");
         for (int k = 0; k < N; k++) {
-          KOKKOS_IMPL_DO_NOT_USE_PRINTF("%f \n", update(k));
+          KOKKOS_IMPL_DO_NOT_USE_PRINTF("%f \n", -update(k));
         }
       }
       if (linSolverStat == 1) {
@@ -228,7 +221,7 @@ using norm_type       = typename NewtonHandleType::norm_type;
         return NewtonSolverStatus::LinearSolveFailure;
       }
 
-      // update solution // x = alpha*x + update
+      // update solution // x = x + alpha*update
       KokkosBlas::Experimental::Device::SerialAxpy::invoke(alpha, update, x);
     }
     return NewtonSolverStatus::MaxIters;
