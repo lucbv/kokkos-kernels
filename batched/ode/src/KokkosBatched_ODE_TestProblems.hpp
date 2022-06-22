@@ -507,8 +507,10 @@ struct LucP1 {
 //
 // solution y = 1/(1+exp(-t))
 // y(0)=0.5
-template <typename scalar_type, typename execution_space>
+template <typename scalar, typename exec_space>
 struct Logistic {
+  using scalar_type = scalar;
+  using execution_space = exec_space;
   using vec_type = Kokkos::View<scalar_type*, execution_space>;
   using mat_type = Kokkos::View<scalar_type**, execution_space>;
 
@@ -516,18 +518,16 @@ struct Logistic {
 
   Logistic() {}
 
-  KOKKOS_FUNCTION void derivatives(const scalar_type /*t*/, vec_type& y, vec_type& dydt) const {
+  KOKKOS_FUNCTION void derivatives(const scalar_type /*t*/, const vec_type& y, const vec_type& dydt) const {
     dydt(0) = y(0)*(1 - y(0));
   }
 
-  KOKKOS_FUNCTION void jacobian(const scalar_type /*t*/, vec_type& y, mat_type& jac) const {
-    jac(0) = 1 - 2*y(0);
+  KOKKOS_FUNCTION void jacobian(const scalar_type /*t*/, const vec_type& y, const mat_type& jac) const {
+    jac(0,0) = 1 - 2*y(0);
   }
 
   KOKKOS_FUNCTION scalar_type expected_val(const scalar_type t) const {
-    using Kokkos::exp;
-
-    return static_cast<scalar_type>(1 / (1 + exp(-t)));
+    return static_cast<scalar_type>(1 / (1 + Kokkos::exp(-t)));
   }
 
   KOKKOS_FUNCTION int num_equations() const { return neqs; }

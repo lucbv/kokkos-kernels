@@ -162,6 +162,9 @@ using norm_type       = typename NewtonHandleType::norm_type;
     for (int it = 0; it < handle.maxIters; ++it) {
       // compute initial rhs
       sys.derivatives(0, x, rhs);
+      if (handle.debug_mode) {
+        KOKKOS_IMPL_DO_NOT_USE_PRINTF("NewtonFunctor: r=%f\n", rhs(0));
+      }
 
       // Solve the following linearized
       // problem at each step: J*update=rhs
@@ -206,7 +209,7 @@ using norm_type       = typename NewtonHandleType::norm_type;
       KokkosBlas::Experimental::Device::SerialScale::invoke(-1, update);
 
       // update state of variables if needed
-      sys.update_state(update);
+      // sys.update_state(update);
 
       if (handle.debug_mode) {
         KOKKOS_IMPL_DO_NOT_USE_PRINTF(
