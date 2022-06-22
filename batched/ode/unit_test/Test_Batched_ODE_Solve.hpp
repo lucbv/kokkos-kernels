@@ -467,7 +467,7 @@ int test_ode_solver() {
 }
 
 template <typename execution_space, typename scalar_type>
-int test_BDF_integrator() {
+int test_BDF_Logistic() {
   using ode_solver_type = KokkosBatched::Experimental::ODE::ODE_solver_type;
   using vec_type = Kokkos::View<scalar_type*, execution_space>;
 
@@ -489,6 +489,35 @@ int test_BDF_integrator() {
   return 0;
 }
 
+template <typename execution_space, typename scalar_type>
+int test_BDF_LotkaVoltera() {
+  using ode_solver_type = KokkosBatched::Experimental::ODE::ODE_solver_type;
+  using vec_type = Kokkos::View<scalar_type*, execution_space>;
+
+  LotkaVoltera<scalar_type, execution_space> ode{};
+
+  ODEArgs args;
+  args.num_substeps = 500;
+
+  vec_type y("Solution", 2);
+  vec_type y0("Initial values", 2);
+  vec_type tmp("tmp", 2);
+  vec_type f("Derivatives", 2);
+
+  {
+    typename vec_type::HostMirror y0_h = Kokkos::create_mirror_view(y0);
+    y0_h(0) = 0.9;
+    y0_h(1) = 0.9;
+
+    Kokkos::deep_copy(y0, y0_h);
+  }
+
+  ODESolver<ode_solver_type::BDFS> myODESolver;
+  myODESolver.invoke(ode, args, y, y0, f, tmp, 0, 50);
+
+  return 0;
+}
+
 #if defined(KOKKOSKERNELS_INST_DOUBLE)
 TEST_F(TestCategory, ODE_Solver) {
   test_ode_solver<TestExecSpace, double>();
@@ -497,7 +526,13 @@ TEST_F(TestCategory, ODE_Solver) {
 
 #if defined(KOKKOSKERNELS_INST_DOUBLE)
 TEST_F(TestCategory, ODE_Solver_BDFS) {
-  test_BDF_integrator<TestExecSpace, double>();
+  test_BDF_Logistic<TestExecSpace, double>();
+}
+#endif
+
+#if defined(KOKKOSKERNELS_INST_DOUBLE)
+TEST_F(TestCategory, ODE_BDF_LotkaVoltera) {
+  test_BDF_LotkaVoltera<TestExecSpace, double>();
 }
 #endif
 

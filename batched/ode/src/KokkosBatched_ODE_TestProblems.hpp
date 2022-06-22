@@ -534,6 +534,39 @@ struct Logistic {
 };
 
 
+// Predator-prey system
+// du/dt=2/3*u - u*v
+// dv/dt=-9*v + 3u*v
+//
+// solution y = 1/(1+exp(-t))
+// y(0)=0.5
+template <typename scalar, typename exec_space>
+struct LotkaVoltera {
+  using scalar_type = scalar;
+  using execution_space = exec_space;
+  using vec_type = Kokkos::View<scalar_type*, execution_space>;
+  using mat_type = Kokkos::View<scalar_type**, execution_space>;
+
+  const int neqs = 2;
+
+  LotkaVoltera() {}
+
+  KOKKOS_FUNCTION void derivatives(const scalar_type /*t*/, const vec_type& y, const vec_type& dydt) const {
+    dydt(0) = 2.0/3.0*y(0) - 4.0/3.0*y(0)*y(1);
+    dydt(1) = y(0)*y(1) - y(1);
+  }
+
+  KOKKOS_FUNCTION void jacobian(const scalar_type /*t*/, const vec_type& y, const mat_type& jac) const {
+    jac(0,0) = 2 - y(1);
+    jac(0,1) = -y(0);
+    jac(1,0) = 3*y(1);
+    jac(1,1) = 3*y(0) - 9;
+  }
+
+  KOKKOS_FUNCTION int num_equations() const { return neqs; }
+};
+
+
 }  // namespace ODE
 }  // namespace Experimental
 }  // namespace KokkosBatched
