@@ -50,9 +50,9 @@
 #include "KokkosBatched_LU_Serial_Impl.hpp"
 #include "KokkosBatched_Scale_Decl.hpp"
 #include "KokkosBatched_Gesv.hpp"
-#include "KokkosBlasDevice_nrm2_impl.hpp"
-#include "KokkosBlasDevice_axpy_impl.hpp"
-#include "KokkosBlasDevice_scale_impl.hpp"
+#include "KokkosBlas1_nrm2.hpp"
+#include "KokkosBlas1_scal.hpp"
+#include "KokkosBlas1_axpby.hpp"
 
 enum class NewtonSolverStatus { Converged = 0, LinearSolveFailure, MaxIters };
 
@@ -79,32 +79,32 @@ return os;
 
 template <class NormViewType>
 struct NewtonHandle {
-public:
-using norm_type = typename NormViewType::non_const_value_type;
-NormViewType lastResidual;  // Residual of last successful iteration
-typename NormViewType::HostMirror lastResidualHost;
+  using norm_type = typename NormViewType::non_const_value_type;
 
-// NormViewType  residual_norms;
-// TODO: Making these public for now. Should make private and access
-// via setters and getters?
-int maxIters;           // Maximum number of Newton steps
-norm_type relativeTol;  // Relative convergence tolerance
-bool debug_mode;        // Returns extra verbose output if true.
+  NormViewType lastResidual;  // Residual of last successful iteration
+  typename NormViewType::HostMirror lastResidualHost;
 
-public:
-NewtonHandle(int _maxIters = 25, double _relativeTol = 1.0e-6,
+  // NormViewType  residual_norms;
+  // TODO: Making these public for now. Should make private and access
+  // via setters and getters?
+  int maxIters;           // Maximum number of Newton steps
+  norm_type relativeTol;  // Relative convergence tolerance
+  bool debug_mode;        // Returns extra verbose output if true.
+
+  NewtonHandle(int _maxIters = 25, double _relativeTol = 1.0e-6,
                bool _debug = false)
-  : lastResidual("ending Residual norm", 1),
-    lastResidualHost("end res norm host", 1),
-    maxIters(_maxIters),
-    relativeTol(_relativeTol),
-    debug_mode(_debug) {}
+    : lastResidual("ending Residual norm", 1),
+      lastResidualHost("end res norm host", 1),
+      maxIters(_maxIters),
+      relativeTol(_relativeTol),
+      debug_mode(_debug) {}
 
   norm_type get_end_residual() const {
-Kokkos::deep_copy(lastResidualHost, lastResidual);
-return lastResidualHost(0);
-}
-    };
+    Kokkos::deep_copy(lastResidualHost, lastResidual);
+    return lastResidualHost(0);
+  }
+
+}; // NewtonHandle
 
 /// \brief Newton Functor:
 /// Solves the nonlinear system F(x) = 0
@@ -113,9 +113,9 @@ return lastResidualHost(0);
 /// the value of the Jacobian evaluated at x.
 /// \tparam RHSFunc: Functor on (y,x) where y is output with the value
 /// of F at x.
-/// \tparam Matrix: 3D view-type of LHSFunc output (extent(0) = 1)
-/// \tparam XVector: 2D view-type (extent(0) = 1)
-/// \tparam YVector: 2D view-type (extent(0) = 1)
+/// \tparam Matrix: rank-3 view-type of LHSFunc output (extent(0) = 1)
+/// \tparam XVector: rank-2 view-type (extent(0) = 1)
+/// \tparam YVector: rank-2 view-type (extent(0) = 1)
 /// \param
 /// \param X [in]: Input vector X, a rank 2 view
 /// \param Y [in/out]: Output vector Y, a rank 2 view
@@ -137,7 +137,8 @@ using norm_type       = typename NewtonHandleType::norm_type;
 
   Matrix J, tmp;
   XVector update;
-  Kokkos::View<yvalue_type*, execution_space> norm, alpha;
+  Kokkos::View<norm_type, execution_space> norm;
+  Kokkos::View<yvalue_type*, execution_space> alpha;
 
   NewtonFunctor(System _sys, XVector _x, YVector _rhs,
                   NewtonHandleType& _handle)
@@ -148,7 +149,7 @@ using norm_type       = typename NewtonHandleType::norm_type;
     J      = Matrix("Jacobian", x.extent(0), x.extent(0));
     tmp    = Matrix("Jacobian", x.extent(0), x.extent(0) + 4);
     update = XVector("update", x.extent(0));
-    norm   = Kokkos::View<norm_type*, execution_space>("Newton norm", 1);
+    norm   = Kokkos::View<norm_type, execution_space>("Newton norm");
     alpha  = Kokkos::View<yvalue_type*, execution_space>("alpha", 1);
     N      = x.extent(0);
   }
@@ -169,8 +170,15 @@ using norm_type       = typename NewtonHandleType::norm_type;
       // Solve the following linearized
       // problem at each step: J*update=rhs
       // with J=du/dx, rhs=f(u_n+update)-f(u_n)
-      KokkosBlas::Experimental::Device::SerialNrm2::invoke(rhs, norm);
-      handle.lastResidual(0) = norm(0);
+      static_assert(Kokkos::View<yvalue_type, execution_space>::rank == 0);
+      static_assert(YVector::rank == 1);
+      int ierr = KokkosBlas::serial_nrm2(rhs, norm);
+      if(0 < ierr) {
+        KOKKOS_IMPL_DO_NOT_USE_PRINTF(
+            "NewtonFunctor: serial_nrm2 reports the following error %d\n",
+            ierr);
+      }
+      handle.lastResidual(0) = norm();
 
       if (handle.debug_mode) {
         KOKKOS_IMPL_DO_NOT_USE_PRINTF(
@@ -184,14 +192,14 @@ using norm_type       = typename NewtonHandleType::norm_type;
         }
       }
 
-      if (norm(0) < handle.relativeTol) {
+      if (norm() < handle.relativeTol) {
         // Problem solved, exit the functor
         if (handle.debug_mode) {
           KOKKOS_IMPL_DO_NOT_USE_PRINTF(
               "NewtonFunctor: Newton solver converged! Ending norm is: %e \n "
               "Solution x is: "
               "\n",
-              norm(0));
+              norm());
           for (int k = 0; k < N; k++) {
             KOKKOS_IMPL_DO_NOT_USE_PRINTF("%f \n", x(k));
             // KOKKOS_IMPL_DO_NOT_USE_PRINTF("%f \n", x(0, k));
@@ -206,7 +214,7 @@ using norm_type       = typename NewtonHandleType::norm_type;
       // solve linear problem
       int linSolverStat = KokkosBatched::SerialGesv<
         KokkosBatched::Gesv::StaticPivoting>::invoke(J, update, rhs, tmp);
-      KokkosBlas::Experimental::Device::SerialScale::invoke(-1, update);
+      KokkosBlas::SerialScale::invoke(-1, update);
 
       // update state of variables if needed
       // sys.update_state(update);
@@ -225,7 +233,8 @@ using norm_type       = typename NewtonHandleType::norm_type;
       }
 
       // update solution // x = x + alpha*update
-      KokkosBlas::Experimental::Device::SerialAxpy::invoke(alpha, update, x);
+      KokkosBlas::serial_axpy(alpha(0), update, x);
+      // KokkosBlas::Experimental::Device::SerialAxpy::invoke(alpha, update, x);
     }
     return NewtonSolverStatus::MaxIters;
   }  // End solve functor.
