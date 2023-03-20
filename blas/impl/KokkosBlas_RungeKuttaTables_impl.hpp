@@ -1,55 +1,26 @@
-/*
 //@HEADER
 // ************************************************************************
 //
-//                        Kokkos v. 3.0
-//       Copyright (2020) National Technology & Engineering
+//                        Kokkos v. 4.0
+//       Copyright (2022) National Technology & Engineering
 //               Solutions of Sandia, LLC (NTESS).
 //
 // Under the terms of Contract DE-NA0003525 with NTESS,
 // the U.S. Government retains certain rights in this software.
 //
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are
-// met:
+// Part of Kokkos, under the Apache License v2.0 with LLVM Exceptions.
+// See https://kokkos.org/LICENSE for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
-// 1. Redistributions of source code must retain the above copyright
-// notice, this list of conditions and the following disclaimer.
-//
-// 2. Redistributions in binary form must reproduce the above copyright
-// notice, this list of conditions and the following disclaimer in the
-// documentation and/or other materials provided with the distribution.
-//
-// 3. Neither the name of the Corporation nor the names of the
-// contributors may be used to endorse or promote products derived from
-// this software without specific prior written permission.
-//
-// THIS SOFTWARE IS PROVIDED BY NTESS "AS IS" AND ANY
-// EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
-// PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL NTESS OR THE
-// CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
-// EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
-// PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
-// PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
-// LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
-// NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
-// SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-//
-// Questions? Contact Jennifer Loe (jloe@sandia.gov)
-//
-// ************************************************************************
 //@HEADER
-*/
 
-#ifndef __KOKKOSBATCHED_ODE_RUNGEKUTTATABLES_HPP__
-#define __KOKKOSBATCHED_ODE_RUNGEKUTTATABLES_HPP__
+#ifndef KOKKOSBLAS_RUNGEKUTTATABLES_IMPL_HPP
+#define KOKKOSBLAS_RUNGEKUTTATABLES_IMPL_HPP
 
 #include <Kokkos_Array.hpp>
 
-namespace KokkosBatched {
-namespace Experimental {
-namespace ODE {
+namespace KokkosBlas {
+namespace Impl {
 //=====================================================================
 // Generalized RK Explicit ODE solver with embedded error estimation
 //=====================================================================
@@ -64,7 +35,7 @@ namespace ODE {
 
 // Format follows form of Butcher Tableau
 
-// c0| a00
+// c1| a00
 // c2| a10 a11
 // c3| a20 a21 a22
 // c4| a30 a31 a32
@@ -74,6 +45,7 @@ namespace ODE {
 // cs| as0 as1 . . . . . .  ass
 //--------------------------------
 //   | b0  b1  b2  b3 . . . bs
+//   | e0  e1  e2  e3 . . . es
 //
 // And is always in lower triangular form for explicit methods
 // For explicit methods the methods on the diagonal will always be zero.
@@ -82,12 +54,24 @@ namespace ODE {
 // 'order' refers to the accuracy of the method.
 // The array of aij coefficients is ordered by rows as: a =
 // {a00,a10,a11,a20,a21,a22....}
+// e contains coefficient for error estimation
 
 template <int order, int nstages, int variant = 0>
 struct ButcherTableau { };
 
 template <>
-struct ButcherTableau<1, 1>  // Euler Huen Method
+struct ButcherTableau<0, 0> // Forward Euler
+{
+  static constexpr int order   = 1;
+  static constexpr int nstages = 1;
+
+  Kokkos::Array<double, 1>a{{1}};
+  Kokkos::Array<double, nstages> b{{1}};
+  Kokkos::Array<double, nstages> c{{0}};
+};
+
+template <>
+struct ButcherTableau<1, 1>  // Euler-Heun Method
 {
   static constexpr int order   = 2;
   static constexpr int nstages = 2;  // total dimensions, nstagesxnstages system
@@ -241,8 +225,7 @@ struct ButcherTableau<4, 6> // Referred to as DOPRI5 or RKDP
        11.0 / 84.0 - 187.0 / 2100.0, -1.0 / 40.0}};
 };
 
-}  // namespace ODE
-}  // namespace Experimental
-}  // namespace KokkosBatched
+}  // namespace Impl
+}  // namespace KokkosBlas
 
-#endif
+#endif // KOKKOSBLAS_RUNGEKUTTATABLES_IMPL_HPP
