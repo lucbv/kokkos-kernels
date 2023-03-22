@@ -77,6 +77,7 @@
 // Stuff that should move later on
 #include "Test_Blas_Newton.hpp"
 #include "Test_Blas_RK.hpp"
+#include "Test_Blas_BDF.hpp"
 
 // TPLs
 #include "Test_Blas_rocblas.hpp"

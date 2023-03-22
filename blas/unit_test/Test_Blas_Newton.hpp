@@ -43,6 +43,16 @@ struct LogisticEquation {
   LogisticEquation(const scalar_type dt_, vec_type initial_state)
       : dt(dt_), state(initial_state) {}
 
+  KOKKOS_FUNCTION void evaluate_function(const scalar_type /*t*/, const scalar_type /*dt*/,
+					 const vec_type& y, const vec_type& f) {
+    f(0) = y(0) * (1 - y(0));
+  }
+
+  KOKKOS_FUNCTION void evaluate_derivatives(const scalar_type /*t*/, const scalar_type /*dt*/,
+					    const vec_type& y, const mat_type& dfdy) {
+    dfdy(0, 0) = 1 - 2*y(0);
+  }
+
   KOKKOS_FUNCTION void residual(const vec_type& y, const vec_type& dydt) const {
     dydt(0) = y(0) - state(0) - dt * y(0) * (1 - y(0));
   }
