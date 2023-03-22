@@ -93,38 +93,15 @@ struct nonlinear_system{
     // r = f
     ode.evaluate_function(y, r);
 
-    std::cout << "nls residual: f={ ";
-    for(int eqIdx = 0; eqIdx < neqs; ++eqIdx) {
-      std::cout << r(eqIdx) << " ";
-    }
-    std::cout << "}" << std::endl;
-
     // r = -coeff*dt*r = -coeff*dt*f
     for(int eqIdx = 0; eqIdx < neqs; ++eqIdx) {
       r(eqIdx) = -table.coeff_f*dt*r(eqIdx);
     }
 
-    std::cout << "nls residual: -dt*coeff*f={ ";
-    for(int eqIdx = 0; eqIdx < neqs; ++eqIdx) {
-      std::cout << r(eqIdx) << " ";
-    }
-    std::cout << "}" << std::endl;
-
     // r += y --> r = y - coeff*dt*f
     for(int eqIdx = 0; eqIdx < neqs; ++eqIdx) {
       r(eqIdx) += y(eqIdx);
     }
-
-    std::cout << "nls residual: y={ ";
-    for(int eqIdx = 0; eqIdx < neqs; ++eqIdx) {
-      std::cout << y(eqIdx) << " ";
-    }
-    std::cout << "}" << std::endl;
-    std::cout << "nls residual: y - dt*coeff*f={ ";
-    for(int eqIdx = 0; eqIdx < neqs; ++eqIdx) {
-      std::cout << r(eqIdx) << " ";
-    }
-    std::cout << "}" << std::endl;
 
     // r += coeffs(i)*hist(i) --> r = y - coeff*dt*f + sum coeff(i)*hist(i)
     for(int vecIdx = 0; vecIdx < table.order; ++vecIdx) {
@@ -132,12 +109,6 @@ struct nonlinear_system{
 	r(eqIdx) += table.coeffs[vecIdx]*history(eqIdx, vecIdx);
       }
     }
-
-    std::cout << "nls residual: r={ ";
-    for(int eqIdx = 0; eqIdx < neqs; ++eqIdx) {
-      std::cout << r(eqIdx) << " ";
-    }
-    std::cout << "}" << std::endl;
   }
 
   KOKKOS_FUNCTION
