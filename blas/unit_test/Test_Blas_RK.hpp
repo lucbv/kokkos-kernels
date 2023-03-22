@@ -41,14 +41,14 @@ struct duho {
 
   template <class vec_type1, class vec_type2>
   KOKKOS_FUNCTION
-  void evaluate_function(const double /*t*/, const double /*dt*/, const vec_type1& y, const vec_type2& f) {
+  void evaluate_function(const double /*t*/, const double /*dt*/, const vec_type1& y, const vec_type2& f) const {
     f(0) = a11*y(0) + a12*y(1);
     f(1) = a21*y(0) + a22*y(1);
   }
 
   template <class vec_type>
   KOKKOS_FUNCTION
-  void solution(const double t, const vec_type& y0, const vec_type& y) {
+  void solution(const double t, const vec_type& y0, const vec_type& y) const {
     using KAT = Kokkos::ArithTraits<double>;
 
     const double omega_0     = KAT::sqrt(k / m);
@@ -64,17 +64,60 @@ struct duho {
 
 }; // duho
 
+template <class ode_type, class vec_type, class scalar_type>
+struct solution_wrapper{
+
+  ode_type ode;
+  scalar_type t;
+  vec_type y_old, y_ref;
+
+  solution_wrapper(const ode_type& ode_, const scalar_type t_, const vec_type& y_old_, const vec_type& y_ref_)
+    : ode(ode_), t(t_), y_old(y_old_), y_ref(y_ref_) {};
+
+  KOKKOS_FUNCTION
+  void operator() (const int /*idx*/) const {
+    ode.solution(t, y_old, y_ref);
+  }
+};
+
+template <class ode_type, class table_type, class vec_type, class mv_type, class scalar_type>
+struct RKSolve_wrapper {
+
+  ode_type my_ode;
+  table_type table;
+  scalar_type tstart, tend, dt;
+  int max_steps;
+  vec_type y_old, y_new, tmp;
+  mv_type kstack;
+
+  RKSolve_wrapper(const ode_type& my_ode_, const table_type& table_,
+		  const scalar_type tstart_, const scalar_type tend_, const scalar_type dt_,
+		  const int max_steps_, const vec_type& y_old_, const vec_type& y_new_,
+		  const vec_type& tmp_, const mv_type& kstack_) :
+    my_ode(my_ode_), table(table_), tstart(tstart_), tend(tend_), dt(dt_), max_steps(max_steps_),
+    y_old(y_old_), y_new(y_new_), tmp(tmp_), kstack(kstack_) {}
+
+  KOKKOS_FUNCTION
+  void operator() (const int /*idx*/) const {
+    KokkosBlas::Impl::RKSolve<ode_type, table_type, vec_type, mv_type, double>(my_ode, table, tstart, tend, dt, max_steps, y_old, y_new, tmp, kstack);
+  }
+};
+
 template <class ode_type, class table_type, class vec_type, class mv_type, class scalar_type>
 void test_method(const std::string label, ode_type& my_ode,
 		 const scalar_type& tstart, const scalar_type& tend, scalar_type& dt,
 		 const int max_steps, vec_type& y_old, vec_type& y_new,
 		 const Kokkos::View<double**, Kokkos::HostSpace>& ks,
 		 const Kokkos::View<double*, Kokkos::HostSpace>& sol) {
+  using execution_space = typename vec_type::execution_space;
 
   table_type table;
   vec_type tmp("tmp vector", my_ode.neqs);
   mv_type kstack("k stack", my_ode.neqs, table.nstages);
-  KokkosBlas::Impl::RKSolve<ode_type, table_type, vec_type, mv_type, double>(my_ode, table, tstart, tend, dt, max_steps, y_old, y_new, tmp, kstack);
+
+  Kokkos::RangePolicy<execution_space> my_policy(0, 1);
+  RKSolve_wrapper solve_wrapper(my_ode, table, tstart, tend, dt, max_steps, y_old, y_new, tmp, kstack);
+  Kokkos::parallel_for(my_policy, solve_wrapper);
 
   auto y_new_h = Kokkos::create_mirror_view(y_new);
   Kokkos::deep_copy(y_new_h, y_new);
@@ -102,7 +145,9 @@ void test_RK() {
   const int neqs    = my_oscillator.neqs;
   
   vec_type y("solution", neqs), f("function", neqs);
-  y(0) = 1; y(1) = 0;
+  auto y_h = Kokkos::create_mirror(y);
+  y_h(0) = 1; y_h(1) = 0;
+  Kokkos::deep_copy(y, y_h);
 
   constexpr double tstart = 0, tend = 10;
   constexpr int max_steps = 1000;
@@ -179,11 +224,15 @@ void test_RK() {
   }
 
   vec_type y_ref("reference value", neqs);
-  y_old(0) = 1; y_old(1) = 0;
-  my_oscillator.solution(tstart + dt, y_old, y_ref);
+  Kokkos::deep_copy(y_old, y_old_h);
+  Kokkos::RangePolicy<execution_space> my_policy(0, 1);
+  solution_wrapper wrapper(my_oscillator, tstart + dt, y_old, y_ref);
+  Kokkos::parallel_for(my_policy, wrapper);
 
+  auto y_ref_h = Kokkos::create_mirror(y_ref);
+  Kokkos::deep_copy(y_ref_h, y_ref);
   std::cout << "\nAnalytical solution" << std::endl;
-  std::cout << "  y={" << y_ref(0) << ", " << y_ref(1) << "}" << std::endl;
+  std::cout << "  y={" << y_ref_h(0) << ", " << y_ref_h(1) << "}" << std::endl;
 
 }
 

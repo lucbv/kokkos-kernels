@@ -77,7 +77,7 @@ struct NewtonWrapper {
   NewtonWrapper(solver newton_solver_) : newton_solver(newton_solver_){};
 
   KOKKOS_INLINE_FUNCTION
-  void operator()(const int /* system_index */) const { newton_solver.solve(); }
+  void operator()(const int /* system_index */) const { newton_solver.solve(25, 1e-6, false); }
 };
 
 template <typename execution_space, typename scalar_type>
@@ -85,11 +85,9 @@ int test_logistic() {
   using vec_type    = typename Kokkos::View<scalar_type*, execution_space>;
   using mat_type    = typename Kokkos::View<scalar_type**, execution_space>;
   using norm_type   = typename Kokkos::View<scalar_type*, execution_space>;
-  using handle_type = KokkosBlas::Impl::NewtonHandle<norm_type>;
   using system_type = LogisticEquation<scalar_type, execution_space>;
   using newton_type =
-      KokkosBlas::Impl::NewtonFunctor<system_type, mat_type, vec_type, vec_type,
-                                      handle_type>;
+      KokkosBlas::Impl::NewtonFunctor<system_type, mat_type, vec_type, vec_type>;
   using table_type  = KokkosBlas::Impl::BDFTable<1>;
   using nls_type    = KokkosBlas::Impl::nonlinear_system<system_type, table_type,
 							 scalar_type, vec_type,
@@ -101,13 +99,12 @@ int test_logistic() {
     Kokkos::deep_copy(state, 0.5);
     system_type ode(0.1, state);
 
-    vec_type x("solution vector", 1), rhs("right hand side vector", 1);
+    mat_type J("jacobian", ode.neqs, ode.neqs), tmp("temporary storage", ode.neqs, ode.neqs + 4);
+    vec_type x("solution vector", ode.neqs), rhs("right hand side vector", ode.neqs), update("update", ode.neqs);
     Kokkos::deep_copy(x, 0.5);
 
     // Create the solver and wrapper
-    handle_type handle;
-    handle.debug_mode = false;
-    newton_type newton_solver(ode, x, rhs, handle);
+    newton_type newton_solver(ode, x, rhs, J, tmp, update);
     NewtonWrapper<newton_type> wrapper(newton_solver);
 
     // Launch the problem in a parallel_for
@@ -135,14 +132,13 @@ int test_logistic() {
     table_type table;
 
     nls_type nls(ode, table, 0, dt, history);
-    vec_type x("solution vector", 1), rhs("right hand side vector", 1);
+
+    mat_type J("jacobian", ode.neqs, ode.neqs), tmp("temporary storage", ode.neqs, ode.neqs + 4);
+    vec_type x("solution vector", ode.neqs), rhs("right hand side vector", ode.neqs), update("update", ode.neqs);
     Kokkos::deep_copy(x, 0.5);
 
     // Create the solver and wrapper
-    handle_type handle;
-    handle.debug_mode = false;
-    KokkosBlas::Impl::NewtonFunctor<nls_type, mat_type, vec_type, vec_type,
-				    handle_type> newton_solver(nls, x, rhs, handle);
+    KokkosBlas::Impl::NewtonFunctor<nls_type, mat_type, vec_type, vec_type> newton_solver(nls, x, rhs, J, tmp, update);
     newton_solver.solve();
 
     // Get the solution back and test it
@@ -156,19 +152,21 @@ int test_logistic() {
   // to the BDFStep function which is closer
   // to what users want to do!
   {
+    scalar_type t = 0;
     const scalar_type dt  = 0.1;
-    mat_type jac("Jacobian", 1, 1);
-    mat_type history("history", 1, 1);
-    Kokkos::deep_copy(history, 0.5);
     vec_type state("state", 1);
     Kokkos::deep_copy(state, 0.5);
     system_type ode(dt, state);
     table_type table;
-    scalar_type t = 0;
+    vec_type rhs("right hand side", ode.neqs), update("Newton update", ode.neqs);
+    mat_type jac("Jacobian", ode.neqs, ode.neqs);
+    mat_type tmp("temporary storage", ode.neqs, ode.neqs+4);
+    mat_type history("history", ode.neqs, ode.neqs);
+    Kokkos::deep_copy(history, 0.5);
 
-    vec_type y("solution vector", 1);
+    vec_type y("solution vector", ode.neqs);
     Kokkos::deep_copy(y, 0.5);
-    KokkosBlas::Impl::BDFStep(ode, table, t, dt, history, y, jac);
+    KokkosBlas::Impl::BDFStep(ode, table, t, dt, rhs, history, y, jac, tmp, update);
 
     // Get the solution back and test it
     auto y_h = Kokkos::create_mirror_view(y);

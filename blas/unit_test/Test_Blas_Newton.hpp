@@ -120,24 +120,21 @@ int test_logistic() {
   using vec_type    = typename Kokkos::View<scalar_type*, execution_space>;
   using mat_type    = typename Kokkos::View<scalar_type**, execution_space>;
   using norm_type   = typename Kokkos::View<scalar_type*, execution_space>;
-  using handle_type = KokkosBlas::Impl::NewtonHandle<norm_type>;
   using system_type = LogisticEquation<scalar_type, execution_space>;
   using newton_type =
-      KokkosBlas::Impl::NewtonFunctor<system_type, mat_type, vec_type, vec_type,
-                                      handle_type>;
+      KokkosBlas::Impl::NewtonFunctor<system_type, mat_type, vec_type, vec_type>;
 
   // Create the non-linear system and initialize data
   vec_type state("state", 1);
   Kokkos::deep_copy(state, 0.5);
   system_type ode(0.1, state);
 
-  vec_type x("solution vector", 1), rhs("right hand side vector", 1);
+  mat_type J("jacobian", ode.neqs, ode.neqs), tmp("temporary storage", ode.neqs, ode.neqs + 4);
+  vec_type x("solution vector", ode.neqs), rhs("right hand side vector", ode.neqs), update("update", ode.neqs);
   Kokkos::deep_copy(x, 0.5);
 
   // Create the solver and wrapper
-  handle_type handle;
-  handle.debug_mode = false;
-  newton_type newton_solver(ode, x, rhs, handle);
+  newton_type newton_solver(ode, x, rhs, J, tmp, update);
   NewtonWrapper<newton_type> wrapper(newton_solver);
 
   // Launch the problem in a parallel_for
@@ -158,15 +155,16 @@ int test_intersection() {
   using vec_type    = typename Kokkos::View<scalar_type*, execution_space>;
   using mat_type    = typename Kokkos::View<scalar_type**, execution_space>;
   using norm_type   = typename Kokkos::View<scalar_type*, execution_space>;
-  using handle_type = KokkosBlas::Impl::NewtonHandle<norm_type>;
   using system_type = Intersection<scalar_type, execution_space>;
   using newton_type =
-      KokkosBlas::Impl::NewtonFunctor<system_type, mat_type, vec_type, vec_type,
-                                      handle_type>;
+      KokkosBlas::Impl::NewtonFunctor<system_type, mat_type, vec_type, vec_type>;
 
   // Create the non-linear system and initialize data
   system_type intersection;
-  vec_type x("solution vector", 2), rhs("right hand side vector", 2);
+  const int neqs = intersection.neqs;
+
+  mat_type J("jacobian", neqs, neqs), tmp("temporary storage", neqs, neqs + 4);
+  vec_type x("solution vector", neqs), rhs("right hand side vector", neqs), update("update", neqs);
   {
     typename vec_type::HostMirror x_h = Kokkos::create_mirror_view(x);
     x_h(0)                            = 2.5;
@@ -175,9 +173,7 @@ int test_intersection() {
   }
 
   // Create the solver and wrapper
-  handle_type handle;
-  handle.debug_mode = false;
-  newton_type newton_solver(intersection, x, rhs, handle);
+  newton_type newton_solver(intersection, x, rhs, J, tmp, update);
   NewtonWrapper<newton_type> wrapper(newton_solver);
 
   // Launch the problem in a parallel_for
@@ -188,7 +184,7 @@ int test_intersection() {
   auto x_h = Kokkos::create_mirror_view(x);
   Kokkos::deep_copy(x_h, x);
   printf("Non-linear problem solution:\n");
-  for (int idx = 0; idx < x_h.extent_int(0); ++idx) {
+  for (int idx = 0; idx < neqs; ++idx) {
     printf("  [%f]\n", x_h(idx));
   }
   EXPECT_NEAR_KK(x_h(0), 3.0, 3.0e-4);

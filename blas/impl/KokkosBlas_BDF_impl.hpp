@@ -83,6 +83,7 @@ struct nonlinear_system{
 
   const int neqs;
 
+  KOKKOS_FUNCTION
   nonlinear_system(const ode_type& ode_, const table_type& table_,
 		   const scalar_type t_, const scalar_type dt_,
 		   const mv_type& history_)
@@ -133,21 +134,17 @@ struct nonlinear_system{
 template <class ode_type, class table_type, class scalar_type, class vec_type, class mv_type, class mat_type>
 KOKKOS_FUNCTION
 void BDFStep(ode_type& ode, const table_type& table, scalar_type t, scalar_type dt,
-	     const mv_type& history, const vec_type& y, const mat_type& /*jacobian*/) {
+	     const vec_type& rhs, const mv_type& history, const vec_type& y,
+	     const mat_type& jacobian, const mat_type& tmp, const vec_type& update) {
 
     using nls_type = nonlinear_system<ode_type, table_type, scalar_type,
 				      vec_type, mv_type, mat_type>;
-    using handle_type = NewtonHandle<vec_type>;
-    using newton_type = NewtonFunctor<nls_type, mat_type, vec_type, vec_type, handle_type>;
-
-    handle_type handle;
-    handle.debug_mode = false;
-    vec_type rhs("right hand side", 1);
+    using newton_type = NewtonFunctor<nls_type, mat_type, vec_type, vec_type>;
 
     // Create a nonlinear-system from the ode
     // and the chosen time integrator
     nls_type nls(ode, table, t, dt, history);
-    newton_type newton_solver(nls, y, rhs, handle);
+    newton_type newton_solver(nls, y, rhs, jacobian, tmp, update);
     newton_solver.solve();
 }
 

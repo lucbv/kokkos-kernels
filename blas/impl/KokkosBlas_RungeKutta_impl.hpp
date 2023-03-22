@@ -34,7 +34,9 @@ void RKStep(ode_type& ode, const table_type& table, scalar_type t, scalar_type d
   const int nstages = table.nstages;
 
   // first set y_new = y_old
-  Kokkos::deep_copy(y_new, y_old);
+  for(int eqIdx = 0; eqIdx < ode.neqs; ++eqIdx) {
+    y_new(eqIdx) =  y_old(eqIdx);
+  }
 
   // now accumulate y_new += dt*b_i*k_i
   {
@@ -49,7 +51,10 @@ void RKStep(ode_type& ode, const table_type& table, scalar_type t, scalar_type d
   // Now that we have k0, we can compute all other k_i
   // and accumulate them in y_new.
   for(int stageIdx = 1; stageIdx < nstages; ++stageIdx) {
-    Kokkos::deep_copy(temp, 0);
+    for(int eqIdx = 0; eqIdx < ode.neqs; ++eqIdx) {
+      temp(eqIdx) =  0;
+    }
+
     for(int idx = 0; idx < stageIdx; ++idx) {
       for(int eqIdx = 0; eqIdx < neqs; ++eqIdx) {
 	temp(eqIdx) += table.a[stageIdx*(stageIdx + 1)/2 + idx]*k_vecs(eqIdx, idx);
@@ -65,16 +70,19 @@ void RKStep(ode_type& ode, const table_type& table, scalar_type t, scalar_type d
   }
 } // RKStep
 
+
 template <class ode_type, class table_type, class vec_type, class mv_type, class scalar_type>
 KOKKOS_FUNCTION
-void RKSolve(ode_type& ode, const table_type& table, const scalar_type t_start,
+void RKSolve(const ode_type& ode, const table_type& table, const scalar_type t_start,
 	     const scalar_type t_end, const scalar_type dt, const int max_steps,
 	     const vec_type& y0, const vec_type& y, const vec_type& temp, const mv_type& k_vecs) {
 
   scalar_type t = t_start;
   for(int stepIdx = 0; (stepIdx < max_steps) && (t < t_end); ++stepIdx) {
     RKStep(ode, table, t, dt, y0, y, temp, k_vecs);
-    Kokkos::deep_copy(y0, y);
+    for(int eqIdx = 0; eqIdx < ode.neqs; ++eqIdx) {
+      y0(eqIdx) = y(eqIdx);
+    }
     t += dt;
   }
 } // RKSolve
