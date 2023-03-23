@@ -84,7 +84,6 @@ template <typename execution_space, typename scalar_type>
 int test_logistic() {
   using vec_type    = typename Kokkos::View<scalar_type*, execution_space>;
   using mat_type    = typename Kokkos::View<scalar_type**, execution_space>;
-  using norm_type   = typename Kokkos::View<scalar_type*, execution_space>;
   using system_type = LogisticEquation<scalar_type, execution_space>;
   using newton_type =
       KokkosBlas::Impl::NewtonFunctor<system_type, mat_type, vec_type, vec_type>;

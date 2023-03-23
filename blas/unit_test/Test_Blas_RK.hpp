@@ -64,6 +64,36 @@ struct duho {
 
 }; // duho
 
+// R1 = 1e-6*1.85e10 * exp(-15618 / T) * (reac) ( 1 – (1- 10^-9) reac)
+// d(reac)/dt = -R1
+// d(prod)/dt = R1
+struct chem_model_1 {
+
+  constexpr static int neqs = 2;
+  constexpr static double alpha = 1e-6*1.85e10;
+  constexpr static double beta  = 15618;
+  constexpr static double gamma = 1 - 10^-9;
+
+  const double tstart, tend, T0, T1;
+
+  chem_model_1(const double tstart_ = 0, const double tend_ = 300,
+	       const double T0_ = 300, const double T1_ = 800) : tstart(tstart_), tend(tend_), T0(T0_), T1(T1_) {};
+
+  template <class vec_type1, class vec_type2>
+  KOKKOS_FUNCTION
+  void evaluate_function(const double t, const double /*dt*/, const vec_type1& y, const vec_type2& f) const {
+    // First compute the temperature
+    // using linear ramp from T0 to T1
+    // between tstart and tend.
+    double T = (T1 - T0) * (t - tstart) / (tend - tstart) + T0;
+
+    // Evaluate the chemical reaction rate
+    f(0) = -alpha * Kokkos::exp(-beta / T) * y(0) * (1 - gamma * y(0));
+    f(1) = -f(0);
+  }
+
+};
+
 template <class ode_type, class vec_type, class scalar_type>
 struct solution_wrapper{
 
@@ -234,12 +264,51 @@ void test_RK() {
   std::cout << "\nAnalytical solution" << std::endl;
   std::cout << "  y={" << y_ref_h(0) << ", " << y_ref_h(1) << "}" << std::endl;
 
+} // test_RK
+
+template <class execution_space>
+void test_chem1() {
+  using vec_type   = Kokkos::View<double*,  execution_space>;
+  using mv_type    = Kokkos::View<double**, execution_space>;
+  using table_type = KokkosBlas::Impl::ButcherTableau<4, 5, 1>;
+
+  chem_model_1 chem_model;
+  const int neqs = chem_model.neqs;
+  const int max_steps = 15000;
+  const double dt = 0.1;
+
+  table_type table;
+  vec_type tmp("tmp vector", neqs);
+  mv_type kstack("k stack", neqs, table.nstages);
+
+  // Set initial conditions
+  vec_type y_new("solution", neqs);
+  vec_type y_old("initial conditions", neqs);
+  auto y_old_h = Kokkos::create_mirror(y_old);
+  y_old_h(0) = 1; y_old_h(1) = 0;
+  Kokkos::deep_copy(y_old, y_old_h);
+  Kokkos::deep_copy(y_new, y_old_h);
+
+  Kokkos::RangePolicy<execution_space> my_policy(0, 1);
+  RKSolve_wrapper solve_wrapper(chem_model, table, chem_model.tstart, chem_model.tend,
+				dt, max_steps, y_old, y_new, tmp, kstack);
+  Kokkos::parallel_for(my_policy, solve_wrapper);
+
+  auto y_new_h = Kokkos::create_mirror(y_new);
+  Kokkos::deep_copy(y_new_h, y_new);
+  std::cout << "\nChem model 1" << std::endl;
+  std::cout << "  t0=" << chem_model.tstart << ", tn=" << chem_model.tend << std::endl;
+  std::cout << "  T0=" << chem_model.T0 << ", Tn=" << chem_model.T1 << std::endl;
+  std::cout << "  dt=" << dt << std::endl;
+  std::cout << "  y(t0)={" << y_old_h(0) << ", " << y_old_h(1) << "}" << std::endl;
+  std::cout << "  y(tn)={" << y_new_h(0) << ", " << y_new_h(1) << "}" << std::endl;
 }
 
 } // namespace Test
 
 int test_RK() {
   Test::test_RK<TestExecSpace>();
+  Test::test_chem1<TestExecSpace>();
 
   return 1;
 }
