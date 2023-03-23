@@ -18,6 +18,8 @@
 #define KOKKOSBLAS_RUNGEKUTTA_IMPL_HPP
 
 #include "Kokkos_Core.hpp"
+#include "KokkosBlas1_scal.hpp"
+#include "KokkosBlas1_axpby.hpp"
 
 namespace KokkosBlas {
 namespace Impl {

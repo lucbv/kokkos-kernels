@@ -12,3 +12,6 @@ KOKKOSKERNELS_ADD_EXECUTABLE(
 
 KOKKOSKERNELS_ADD_EXECUTABLE(
     KokkosBlas_team_dot_perf_test SOURCES KokkosBlas_team_dot_perf_test.cpp)
+
+KOKKOSKERNELS_ADD_EXECUTABLE(
+    KokkosBlas_ode_perf_test SOURCES KokkosBlas_ode.cpp)
