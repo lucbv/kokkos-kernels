@@ -100,7 +100,8 @@ int main(int /*argc*/, char** /*argv*/) {
   Kokkos::deep_copy(y_old, y_old_h);
   Kokkos::deep_copy(y_new, y_old_h);
 
-  Kokkos::RangePolicy<execution_space> my_policy(0, 10000);
+  constexpr int num_odes = 10000;
+  Kokkos::RangePolicy<execution_space> my_policy(0, num_odes);
   RKSolve_wrapper solve_wrapper(chem_model, table, chem_model.tstart, chem_model.tend,
 				dt, max_steps, y_old, y_new, tmp, kstack);
 
@@ -117,6 +118,7 @@ int main(int /*argc*/, char** /*argv*/) {
   std::cout << "  dt=" << dt << std::endl;
   std::cout << "  y(t0)={" << y_old_h(0) << ", " << y_old_h(1) << "}" << std::endl;
   std::cout << "  y(tn)={" << y_new_h(0) << ", " << y_new_h(1) << "}" << std::endl;
+  std::cout << "  num odes: " << num_odes << std::endl;
   std::cout << "  time elapsed: " << run_time << std::endl;
 
   }
