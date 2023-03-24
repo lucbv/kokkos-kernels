@@ -117,6 +117,7 @@ int main(int /*argc*/, char** /*argv*/) {
   Kokkos::Timer time;
   time.reset();
   Kokkos::parallel_for(my_policy, solve_wrapper);
+  Kokkos::fence();
   double run_time = time.seconds();
 
   auto y_new_h = Kokkos::create_mirror(y_new);
