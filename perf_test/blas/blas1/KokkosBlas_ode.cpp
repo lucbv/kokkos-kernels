@@ -66,8 +66,17 @@ struct RKSolve_wrapper {
     y_old(y_old_), y_new(y_new_), tmp(tmp_), kstack(kstack_) {}
 
   KOKKOS_FUNCTION
-  void operator() (const int /*idx*/) const {
-    KokkosBlas::Impl::RKSolve<ode_type, table_type, vec_type, mv_type, double>(my_ode, table, tstart, tend, dt, max_steps, y_old, y_new, tmp, kstack);
+  void operator() (const int idx) const {
+
+    // Take subviews to create the local problem
+    auto local_y_old  = Kokkos::subview( y_old, Kokkos::pair(2*idx, 2*idx + 1));
+    auto local_y_new  = Kokkos::subview( y_new, Kokkos::pair(2*idx, 2*idx + 1));
+    auto local_tmp    = Kokkos::subview(   tmp, Kokkos::pair(2*idx, 2*idx + 1));
+    auto local_kstack = Kokkos::subview(kstack, Kokkos::pair(2*idx, 2*idx + 1), Kokkos::ALL());
+
+    // Run Runge-Kutta time integrator
+    KokkosBlas::Impl::RKSolve<ode_type, table_type, vec_type, mv_type, double>(my_ode, table, tstart, tend, dt, max_steps,
+									       local_y_old, local_y_new, local_tmp, local_kstack);
   }
 };
 
@@ -83,24 +92,24 @@ int main(int /*argc*/, char** /*argv*/) {
   using mv_type    = Kokkos::View<double**, execution_space>;
   using table_type = KokkosBlas::Impl::ButcherTableau<4, 5, 1>;
 
+  constexpr int num_odes = 10000;
   chem_model_1 chem_model;
   const int neqs = chem_model.neqs;
   const int max_steps = 15000;
   const double dt = 0.1;
 
   table_type table;
-  vec_type tmp("tmp vector", neqs);
-  mv_type kstack("k stack", neqs, table.nstages);
+  vec_type tmp("tmp vector", neqs*num_odes);
+  mv_type kstack("k stack", neqs*num_odes, table.nstages);
 
   // Set initial conditions
-  vec_type y_new("solution", neqs);
-  vec_type y_old("initial conditions", neqs);
+  vec_type y_new("solution", neqs*num_odes);
+  vec_type y_old("initial conditions", neqs*num_odes);
   auto y_old_h = Kokkos::create_mirror(y_old);
   y_old_h(0) = 1; y_old_h(1) = 0;
   Kokkos::deep_copy(y_old, y_old_h);
   Kokkos::deep_copy(y_new, y_old_h);
 
-  constexpr int num_odes = 10000;
   Kokkos::RangePolicy<execution_space> my_policy(0, num_odes);
   RKSolve_wrapper solve_wrapper(chem_model, table, chem_model.tstart, chem_model.tend,
 				dt, max_steps, y_old, y_new, tmp, kstack);

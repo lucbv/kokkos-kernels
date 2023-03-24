@@ -92,7 +92,11 @@ void RKSolve(const ode_type& ode, const table_type& table, const scalar_type t_s
       // to generalize it and make it GPU friendly first, also it
       // should be guarded when not doing a debug run, this prints
       // a lot...
-      // std::cout << " step " << stepIdx << " t=" << t << ", y={" << y(0) << ", " << y(1) << "}" << std::endl;
+      // std::cout << " step " << stepIdx << " t=" << t << ", y={";
+      // for(int eqIdx = 0; eqIdx < ode.neqs; ++eqIdx) {
+      // 	std::cout << y(eqIdx) << " ";
+      // }
+      // std::cout << "}" << std::endl;
       t += dt;
     } else {
       break;
