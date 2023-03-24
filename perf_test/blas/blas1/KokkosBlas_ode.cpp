@@ -16,6 +16,7 @@
 
 #include "KokkosBlas_RungeKuttaTables_impl.hpp"
 #include "KokkosBlas_RungeKutta_impl.hpp"
+#include "KokkosKernels_TestUtils.hpp"
 
 namespace {
 // R1 = 1e-6*1.85e10 * exp(-15618 / T) * (reac) ( 1 – (1- 10^-9) reac)
@@ -24,7 +25,8 @@ namespace {
 struct chem_model_1 {
 
   constexpr static int neqs = 2;
-  constexpr static double alpha = 1e-6*1.85e10;
+  // constexpr static double alpha = 1e-6*1.85e10;
+  constexpr static double alpha = 1.85e10;
   constexpr static double beta  = 15618;
   constexpr static double gamma = 1 - 10^-9;
 
@@ -82,7 +84,12 @@ struct RKSolve_wrapper {
 
 } // namespace (anonymous)
 
-int main(int /*argc*/, char** /*argv*/) {
+int main(int argc, char** argv) {
+
+  int num_odes = 10000;
+  if((argc > 1) && (0 == Test::string_compare_no_case(argv[1], "-N"))) {
+    num_odes = atoi(argv[2]);
+  }
 
   Kokkos::initialize();
   {
@@ -92,7 +99,6 @@ int main(int /*argc*/, char** /*argv*/) {
   using mv_type    = Kokkos::View<double**, execution_space>;
   using table_type = KokkosBlas::Impl::ButcherTableau<4, 5, 1>;
 
-  constexpr int num_odes = 10000;
   chem_model_1 chem_model;
   const int neqs = chem_model.neqs;
   const int max_steps = 15000;
