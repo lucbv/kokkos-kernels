@@ -102,21 +102,50 @@ void axpby(const execution_space& space, const AV& a, const XMV& X, const BV& b,
   using YMV_Internal = Kokkos::View<typename YMV::non_const_data_type,
                                     UnifiedYLayout, typename YMV::device_type,
                                     Kokkos::MemoryTraits<Kokkos::Unmanaged> >;
-  using AV_Internal =
+
+  using AV_Internal_tmp =
       typename KokkosKernels::Impl::GetUnifiedScalarViewType<AV, XMV_Internal,
                                                              true>::type;
-  using BV_Internal =
+  using BV_Internal_tmp =
       typename KokkosKernels::Impl::GetUnifiedScalarViewType<BV, YMV_Internal,
                                                              true>::type;
 
-  AV_Internal a_internal  = a;
-  XMV_Internal X_internal = X;
-  BV_Internal b_internal  = b;
-  YMV_Internal Y_internal = Y;
+  if constexpr ((Kokkos::is_view_v<AV_Internal_tmp> && Kokkos::is_view_v<BV_Internal_tmp>)
+		|| (!Kokkos::is_view_v<AV_Internal_tmp> && !Kokkos::is_view_v<BV_Internal_tmp>)) {
+    using AV_Internal = AV_Internal_tmp;
+    using BV_Internal = BV_Internal_tmp;
 
-  Impl::Axpby<execution_space, AV_Internal, XMV_Internal, BV_Internal,
-              YMV_Internal>::axpby(space, a_internal, X_internal, b_internal,
+    AV_Internal a_internal  = a;
+    XMV_Internal X_internal = X;
+    BV_Internal b_internal  = b;
+    YMV_Internal Y_internal = Y;
+
+    Impl::Axpby<execution_space, AV_Internal, XMV_Internal, BV_Internal,
+		YMV_Internal>::axpby(space, a_internal, X_internal, b_internal,
                                    Y_internal);
+  } else {
+    using AV_Internal = AV_Internal_tmp;
+    using BV_Internal_managed = Kokkos::View<BV*,
+				     typename AV_Internal::array_layout::array_layout,
+				     typename AV_Internal::device_type>;
+
+    AV_Internal a_internal  = a;
+    XMV_Internal X_internal = X;
+    YMV_Internal Y_internal = Y;
+
+    BV_Internal_managed b_internal_managed("b", a_internal.extent(0));
+    Kokkos::deep_copy(b_internal_managed, b);
+
+    using BV_Internal = Kokkos::View<BV*,
+				     typename AV_Internal::array_layout::array_layout,
+				     typename AV_Internal::device_type,
+				     Kokkos::MemoryTraits<Kokkos::Unmanaged>>;
+    BV_Internal b_internal = b_internal_managed;
+
+    Impl::Axpby<execution_space, AV_Internal, XMV_Internal, BV_Internal,
+		YMV_Internal>::axpby(space, a_internal, X_internal, b_internal,
+				     Y_internal);
+  }
 }
 
 /// \brief Computes Y := a*X + b*Y
