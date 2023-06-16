@@ -141,7 +141,38 @@ SPGEMM_SYMBOLIC_AVAIL_MKL_E(Kokkos::Serial)
 #ifdef KOKKOS_ENABLE_OPENMP
 SPGEMM_SYMBOLIC_AVAIL_MKL_E(Kokkos::OpenMP)
 #endif
+
+#ifdef KOKKOS_ENABLE_SYCL
+#define SPGEMM_SYMBOLIC_AVAIL_MKL_SYCL(SCALAR)                                 \
+  template <>                                                                  \
+  struct spgemm_symbolic_tpl_spec_avail<                                       \
+      KokkosKernels::Experimental::KokkosKernelsHandle<                        \
+          const MKL_INT, const MKL_INT, const SCALAR, Kokkos::Experimental::SYCL, \
+          Kokkos::Experimental::SYCLDeviceUSMSpace, Kokkos::Experimental::SYCLDeviceUSMSpace>,                                                  \
+      Kokkos::View<const MKL_INT *, default_layout,                            \
+                   Kokkos::Device<Kokkos::Experimental::SYCL,  Kokkos::Experimental::SYCLDeviceUSMSpace>,                    \
+                   Kokkos::MemoryTraits<Kokkos::Unmanaged> >,                  \
+      Kokkos::View<const MKL_INT *, default_layout,                            \
+                   Kokkos::Device<Kokkos::Experimental::SYCL,  Kokkos::Experimental::SYCLDeviceUSMSpace>,                    \
+                   Kokkos::MemoryTraits<Kokkos::Unmanaged> >,                  \
+      Kokkos::View<const MKL_INT *, default_layout,                            \
+                   Kokkos::Device<Kokkos::Experimental::SYCL,  Kokkos::Experimental::SYCLDeviceUSMSpace>,                    \
+                   Kokkos::MemoryTraits<Kokkos::Unmanaged> >,                  \
+      Kokkos::View<const MKL_INT *, default_layout,                            \
+                   Kokkos::Device<Kokkos::Experimental::SYCL,  Kokkos::Experimental::SYCLDeviceUSMSpace>,                    \
+                   Kokkos::MemoryTraits<Kokkos::Unmanaged> >,                  \
+      Kokkos::View<MKL_INT *, default_layout,                                  \
+                   Kokkos::Device<Kokkos::Experimental::SYCL,  Kokkos::Experimental::SYCLDeviceUSMSpace>,                    \
+                   Kokkos::MemoryTraits<Kokkos::Unmanaged> > > {               \
+    enum : bool { value = true };                                              \
+  };
+
+SPGEMM_SYMBOLIC_AVAIL_MKL_SYCL(float)
+SPGEMM_SYMBOLIC_AVAIL_MKL_SYCL(double)
+SPGEMM_SYMBOLIC_AVAIL_MKL_SYCL(Kokkos::complex<float>)
+SPGEMM_SYMBOLIC_AVAIL_MKL_SYCL(Kokkos::complex<double>)
 #endif
+#endif // KOKKOSKERNELS_ENABLE_TPL_MKL
 
 }  // namespace Impl
 }  // namespace KokkosSparse
