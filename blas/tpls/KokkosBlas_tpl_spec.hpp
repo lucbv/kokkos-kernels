@@ -104,6 +104,17 @@ inline cublasOperation_t trans_mode_kk_to_cublas(const char kkMode[]) {
   return trans;
 }
 
+/// \brief This function converts KK uplo mode to cuBLAS uplo mode
+inline cublasFillMode_t fill_mode_kk_to_cublas(const char kkMode[]) {
+  cublasFillMode_t uplo;
+  if ((kkMode[0] == 'U') || (kkMode[0] == 'u'))
+    uplo = CUBLAS_FILL_MODE_UPPER;
+  else if ((kkMode[0] == 'L') || (kkMode[0] == 'l'))
+    uplo = CUBLAS_FILL_MODE_LOWER;
+
+  return uplo;
+}
+
 }  // namespace Impl
 }  // namespace KokkosBlas
 #endif  // KOKKOSKERNELS_ENABLE_TPL_CUBLAS
@@ -209,10 +220,35 @@ inline rocblas_operation trans_mode_kk_to_rocblas(const char kkMode[]) {
   return trans;
 }
 
+/// \brief This function converts KK uplo mode to cuBLAS uplo mode
+inline rocblas_fill fill_mode_kk_to_rocblas(const char kkMode[]) {
+  rocblas_fill uplo;
+  if ((kkMode[0] == 'U') || (kkMode[0] == 'u'))
+    uplo = rocblas_fill_upper;
+  else if ((kkMode[0] == 'L') || (kkMode[0] == 'l'))
+    uplo = rocblas_fill_lower;
+
+  return uplo;
+}
+
 }  // namespace Impl
 }  // namespace KokkosBlas
 
 #endif  // KOKKOSKERNELS_ENABLE_TPL_ROCBLAS
+
+#if KOKKOSKERNELS_ENABLE_TPL_MKL && KOKKOS_ENABLE_SYCL
+
+inline oneapi::mkl::uplo fill_mode_kk_to_onemkl(char mode_kk) {
+  switch (toupper(mode_kk)) {
+    case 'U': return oneapi::mkl::uplo::U;
+    case 'L': return oneapi::mkl::uplo::L;
+    default:;
+  }
+  throw std::invalid_argument(
+      "Invalid mode for oneMKL (should be one of U, u, L, l)");
+}
+
+#endif
 
 // If LAPACK TPL is enabled, it is preferred over magma's LAPACK
 #ifdef KOKKOSKERNELS_ENABLE_TPL_MAGMA
