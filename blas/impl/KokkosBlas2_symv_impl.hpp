@@ -20,6 +20,7 @@
 #include "Kokkos_Core.hpp"
 #include "KokkosKernels_ExecSpaceUtils.hpp"
 #include "Kokkos_ArithTraits.hpp"
+#include <iostream>
 
 namespace KokkosBlas {
 namespace Impl {
@@ -53,11 +54,11 @@ struct SingleLevelSYMV {
                   "XViewType must be a Kokkos::View.");
     static_assert(Kokkos::is_view<YViewType>::value,
                   "YViewType must be a Kokkos::View.");
-    static_assert(static_cast<int>(AViewType::rank) == 2,
+    static_assert(static_cast<int>(AViewType::rank()) == 2,
                   "AViewType must have rank 2.");
-    static_assert(static_cast<int>(XViewType::rank) == 1,
+    static_assert(static_cast<int>(XViewType::rank()) == 1,
                   "XViewType must have rank 1.");
-    static_assert(static_cast<int>(YViewType::rank) == 1,
+    static_assert(static_cast<int>(YViewType::rank()) == 1,
                   "YViewType must have rank 1.");
     static_assert(std::is_integral<IndexType>::value,
                   "IndexType must be an integer.");

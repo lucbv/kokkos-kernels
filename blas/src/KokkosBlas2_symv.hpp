@@ -20,7 +20,7 @@
 /// \brief BLAS 2 kernels specifically optimized for typical
 ///   Tpetra::MultiVector use cases.
 
-#include <KokkosBlas2_gemv_spec.hpp>
+#include <KokkosBlas2_symv_spec.hpp>
 #include <KokkosKernels_helpers.hpp>
 #include <KokkosKernels_Error.hpp>
 #include <sstream>
@@ -48,7 +48,7 @@ namespace KokkosBlas {
 /// \param y [in/out] Output vector, as a nonconst rank 1 Kokkos::View
 template <class ExecutionSpace, class AViewType, class XViewType,
           class YViewType>
-void symv(const ExecutionSpace& space, const char uplo[],
+void symv(const ExecutionSpace& space, const char uplo_[],
           typename AViewType::const_value_type& alpha, const AViewType& A,
           const XViewType& x, typename YViewType::const_value_type& beta,
           const YViewType& y) {
@@ -91,11 +91,14 @@ void symv(const ExecutionSpace& space, const char uplo[],
     KokkosKernels::Impl::throw_runtime_exception(os.str());
   }
 
-  if((std::tolower(static_cast<unsigned char>(uplo)) != "u")
-     || (std::tolower(static_cast<unsigned char>(uplo)) != "l")) {
+  // Make the uplo parameter lower case for easy comparison.
+  std::string uplo(1, uplo_[0]);
+  std::tolower(static_cast<unsigned char>(uplo[0]));
+  if((uplo.compare("u") == 0)
+     || (uplo.compare("l") == 0)) {
     std::ostringstream os;
     os << "KokkosBlas::symv: uplo must be set to U, u, L or l, instead "
-       << "it is set to " << uplo;
+       << "it is set to " << uplo[0];
     KokkosKernels::Impl::throw_runtime_exception(os.str());
   }
 
@@ -133,10 +136,10 @@ void symv(const ExecutionSpace& space, const char uplo[],
                                               YVT>::value;
     using fallback_impl_type = Impl::SYMV<ExecutionSpace, AVT, XVT, YVT,
 					  false, eti_spec_avail>;
-    fallback_impl_type::symv(space, trans, alpha, A, x, beta, y);
+    fallback_impl_type::symv(space, uplo_, alpha, A, x, beta, y);
   } else {
     using impl_type = Impl::SYMV<ExecutionSpace, AVT, XVT, YVT>;
-    impl_type::symv(space, trans, alpha, A, x, beta, y);
+    impl_type::symv(space, uplo_, alpha, A, x, beta, y);
   }
 }
 
