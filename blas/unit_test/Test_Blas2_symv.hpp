@@ -26,10 +26,50 @@
 
 namespace Test {
 
+template <class AMatrix, class XVector, class YVector, class Scalar>
+void serial_symv(char const* uplo_, const Scalar alpha, const AMatrix& A,
+		 const XVector& X, const Scalar beta, const YVector& Y) {
+  using KAT_S = Kokkos::ArithTraits<typename YVector::non_const_value_type>;
+  const int numRows = A.extent_int(0);
+
+  if(beta == KAT_S::zero()) {
+    Kokkos::deep_copy(Y, KAT_S::zero());
+  } else if(beta == KAT_S::one()) {
+    // do nothing
+  } else {
+    for(int rowIdx = 0; rowIdx < numRows; ++rowIdx) {
+      Y(rowIdx) = beta*Y(rowIdx);
+    }
+  }
+
+  if(alpha != KAT_S::zero()) {
+    std::string uplo(1, uplo_[0]);
+    std::tolower(static_cast<unsigned char>(uplo[0]));
+    if(uplo.compare("u")) {
+      for(int rowIdx = 0; rowIdx < numRows; ++rowIdx) {
+	for(int colIdx = rowIdx; colIdx < numRows; ++colIdx) {
+	  Y(rowIdx) += alpha*A(rowIdx, colIdx)*X(colIdx);
+	  if(colIdx > rowIdx) {
+	    Y(colIdx) += alpha*A(rowIdx, colIdx)*X(rowIdx);
+	  }
+	}
+      }
+    } else if(uplo.compare("l")) {
+      for(int rowIdx = 0; rowIdx < numRows; ++rowIdx) {
+	for(int colIdx = 0; colIdx < rowIdx + 1; ++colIdx) {
+	  Y(rowIdx) += alpha*A(rowIdx, colIdx)*X(colIdx);
+	  if(colIdx < rowIdx) {
+	    Y(colIdx) += alpha*A(rowIdx, colIdx)*X(rowIdx);
+	  }
+	}
+      }
+    }
+  }
+}
+
 template <class Scalar, class Ordinal, class Offset, class Layout, class Device>
 void symv_deterministic_test() {
   using execution_space = typename Device::execution_space;
-  // using memory_space    = typename Device::memory_space;
 
   using mat_type = Kokkos::View<Scalar**, Layout, execution_space>;
   using vec_type = Kokkos::View<Scalar*, Layout, execution_space>;
@@ -49,7 +89,6 @@ void symv_deterministic_test() {
   X_h(0) = 3; X_h(1) = 5; X_h(2) = 6; X_h(3) = 2; X_h(4) = 10;
   Yini_h(0) = 7; Yini_h(1) = 8; Yini_h(2) = 5; Yini_h(3) = 2; Yini_h(4) = 5;
 
-  Kokkos::deep_copy(symA, symA_h);
   Kokkos::deep_copy(X, X_h);
   Kokkos::deep_copy(Y, Yini_h);
 
@@ -64,6 +103,7 @@ void symv_deterministic_test() {
     symA_h(2, 0) = 12; symA_h(2, 1) = 43; symA_h(2, 2) = 97; symA_h(2, 3) = 11; symA_h(2, 4) = 17;
     symA_h(3, 0) = 48; symA_h(3, 1) = 73; symA_h(3, 2) = 11; symA_h(3, 3) = 56; symA_h(3, 4) = 35;
     symA_h(4, 0) =  9; symA_h(4, 1) = 24; symA_h(4, 2) = 17; symA_h(4, 3) = 35; symA_h(4, 4) = 37;
+    Kokkos::deep_copy(symA, symA_h);
 
     // Compute the vector A*X
     typename vec_type::HostMirror AX_h("AX vector values", numRows);
@@ -81,6 +121,15 @@ void symv_deterministic_test() {
 			       beta*Yini_h(rowIdx) + alpha*AX_h(rowIdx),
 			       10*KAT_S::eps(),
 			       "SYMV: Failed");
+	  }
+
+	  Kokkos::deep_copy(Y_h, Yini_h);
+	  serial_symv(&uplo, alpha, symA_h, X_h, beta, Y_h);
+	  for(int rowIdx = 0; rowIdx < numRows; ++rowIdx) {
+	    EXPECT_NEAR_KK_REL(Y_h(rowIdx),
+			       beta*Yini_h(rowIdx) + alpha*AX_h(rowIdx),
+			       10*KAT_S::eps(),
+			       "serial_symv: Failed");
 	  }
 	}
       }
@@ -115,6 +164,15 @@ void symv_deterministic_test() {
 			     10*KAT_S::eps(),
 			     "SYMV: Failed");
 	}
+
+	Kokkos::deep_copy(Y_h, Yini_h);
+	serial_symv("U", alpha, symA_h, X_h, beta, Y_h);
+	for(int rowIdx = 0; rowIdx < numRows; ++rowIdx) {
+	  EXPECT_NEAR_KK_REL(Y_h(rowIdx),
+			     beta*Yini_h(rowIdx) + alpha*AXu_h(rowIdx),
+			     10*KAT_S::eps(),
+			     "SYMV: Failed");
+	}
       }
     }
 
@@ -135,22 +193,74 @@ void symv_deterministic_test() {
 			     10*KAT_S::eps(),
 			     "SYMV: Failed");
 	}
+
+	Kokkos::deep_copy(Y_h, Yini_h);
+	serial_symv("L", alpha, symA_h, X_h, beta, Y_h);
+	for(int rowIdx = 0; rowIdx < numRows; ++rowIdx) {
+	  EXPECT_NEAR_KK_REL(Y_h(rowIdx),
+			     beta*Yini_h(rowIdx) + alpha*AXl_h(rowIdx),
+			     10*KAT_S::eps(),
+			     "Serial SYMV: Failed");
+	}
       }
     }
   }
 }
 
-}
+template <class Scalar, class Ordinal, class Offset, class Layout, class Device>
+void symv_large() {
+  using execution_space = typename Device::execution_space;
+
+  using mat_type = Kokkos::View<Scalar**, Layout, execution_space>;
+  using vec_type = Kokkos::View<Scalar*,  Layout, execution_space>;
+  using KAT_S    = Kokkos::ArithTraits<Scalar>;
+
+  constexpr int numRows = 942;
+  execution_space space{};
+
+  mat_type A("matrix a", numRows, numRows);
+  vec_type X("vector x", numRows);
+  vec_type Y("vector y", numRows);
+
+  Kokkos::Random_XorShift64_Pool<execution_space> rand_pool(13718);
+  constexpr double max_valX = 10;
+  constexpr double max_valY = 10;
+  constexpr double max_valA = 10;
+  {
+    Scalar randStart, randEnd;
+
+    Test::getRandomBounds(max_valX, randStart, randEnd);
+    Kokkos::fill_random(space, X, rand_pool, randStart, randEnd);
+
+    Test::getRandomBounds(max_valY, randStart, randEnd);
+    Kokkos::fill_random(space, Y, rand_pool, randStart, randEnd);
+
+    Test::getRandomBounds(max_valA, randStart, randEnd);
+    Kokkos::fill_random(space, A, rand_pool, randStart, randEnd);
+  }
+
+  std::vector<Scalar> betas ({KAT_S::zero(), KAT_S::one(), KAT_S::one()+KAT_S::one()});
+  std::vector<Scalar> alphas({KAT_S::zero(), KAT_S::one(), KAT_S::one()+KAT_S::one()});
+  for(auto alpha : alphas) {
+    for(auto beta : betas) {
+      KokkosBlas::symv(space, "L", alpha, A, X, beta, Y);
+    }
+  }
+
+}  // symv_large()
+
+}  // namespace Test
 
 template <class Scalar, class Ordinal, class Offset, class Device>
 void test_symv() {
-
 #if defined(KOKKOSKERNELS_INST_LAYOUTLEFT)
   Test::symv_deterministic_test<Scalar, Ordinal, Offset, Kokkos::LayoutLeft, Device>();
+  Test::symv_large<Scalar, Ordinal, Offset, Kokkos::LayoutLeft, Device>();
 #endif
 
 #if defined(KOKKOSKERNELS_INST_LAYOUTRIGHT)
   Test::symv_deterministic_test<Scalar, Ordinal, Offset, Kokkos::LayoutRight, Device>();
+  Test::symv_large<Scalar, Ordinal, Offset, Kokkos::LayoutRight, Device>();
 #endif
 }
 
