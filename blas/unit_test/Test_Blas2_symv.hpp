@@ -14,6 +14,7 @@
 //
 //@HEADER
 #include <vector>
+#include <algorithm>
 #include <gtest/gtest.h>
 
 #include <Kokkos_Core.hpp>
@@ -44,8 +45,9 @@ void serial_symv(char const* uplo_, const Scalar alpha, const AMatrix& A,
 
   if(alpha != KAT_S::zero()) {
     std::string uplo(1, uplo_[0]);
-    std::tolower(static_cast<unsigned char>(uplo[0]));
-    if(uplo.compare("u")) {
+    std::transform(uplo.begin(), uplo.end(), uplo.begin(),
+		   [](unsigned char c){ return std::tolower(c); });
+    if(uplo.compare("u") == 0) {
       for(int rowIdx = 0; rowIdx < numRows; ++rowIdx) {
 	for(int colIdx = rowIdx; colIdx < numRows; ++colIdx) {
 	  Y(rowIdx) += alpha*A(rowIdx, colIdx)*X(colIdx);
@@ -54,7 +56,7 @@ void serial_symv(char const* uplo_, const Scalar alpha, const AMatrix& A,
 	  }
 	}
       }
-    } else if(uplo.compare("l")) {
+    } else if(uplo.compare("l") == 0) {
       for(int rowIdx = 0; rowIdx < numRows; ++rowIdx) {
 	for(int colIdx = 0; colIdx < rowIdx + 1; ++colIdx) {
 	  Y(rowIdx) += alpha*A(rowIdx, colIdx)*X(colIdx);
@@ -208,14 +210,13 @@ void symv_deterministic_test() {
 }
 
 template <class Scalar, class Ordinal, class Offset, class Layout, class Device>
-void symv_large() {
+void symv_large(const int numRows) {
   using execution_space = typename Device::execution_space;
 
   using mat_type = Kokkos::View<Scalar**, Layout, execution_space>;
   using vec_type = Kokkos::View<Scalar*,  Layout, execution_space>;
   using KAT_S    = Kokkos::ArithTraits<Scalar>;
 
-  constexpr int numRows = 942;
   execution_space space{};
 
   mat_type A("matrix a", numRows, numRows);
@@ -223,9 +224,10 @@ void symv_large() {
   vec_type Y("vector y", numRows);
 
   Kokkos::Random_XorShift64_Pool<execution_space> rand_pool(13718);
-  constexpr double max_valX = 10;
-  constexpr double max_valY = 10;
-  constexpr double max_valA = 10;
+  constexpr double max_val  = 10;
+  constexpr double max_valX = max_val;
+  constexpr double max_valY = max_val;
+  constexpr double max_valA = max_val;
   {
     Scalar randStart, randEnd;
 
@@ -239,14 +241,34 @@ void symv_large() {
     Kokkos::fill_random(space, A, rand_pool, randStart, randEnd);
   }
 
+  typename mat_type::HostMirror A_h    = Kokkos::create_mirror_view(A);
+  typename vec_type::HostMirror X_h    = Kokkos::create_mirror_view(X);
+  typename vec_type::HostMirror Y_h    = Kokkos::create_mirror_view(Y);
+  typename vec_type::HostMirror Yini_h = Kokkos::create_mirror(Y);
+  typename vec_type::HostMirror Yref_h = Kokkos::create_mirror(Y);
+  Kokkos::deep_copy(X_h, X);
+  Kokkos::deep_copy(Yini_h, Y);
+
+  std::string uplos = "UL";
   std::vector<Scalar> betas ({KAT_S::zero(), KAT_S::one(), KAT_S::one()+KAT_S::one()});
   std::vector<Scalar> alphas({KAT_S::zero(), KAT_S::one(), KAT_S::one()+KAT_S::one()});
-  for(auto alpha : alphas) {
-    for(auto beta : betas) {
-      KokkosBlas::symv(space, "L", alpha, A, X, beta, Y);
+  const double tol = 10*(max_valA*max_valX)*numRows*KAT_S::eps();
+  for(char uplo : uplos) {
+    for(auto alpha : alphas) {
+      for(auto beta : betas) {
+	Kokkos::deep_copy(Y, Yini_h);
+	KokkosBlas::symv(space, &uplo, alpha, A, X, beta, Y);
+	Kokkos::deep_copy(Y_h, Y);
+
+	Kokkos::deep_copy(Yref_h, Yini_h);
+	serial_symv(&uplo, alpha, A_h, X_h, beta, Yref_h);
+
+	for(int rowIdx = 0; rowIdx < numRows; ++rowIdx) {
+	  EXPECT_NEAR_KK_REL(Y_h(rowIdx), Yref_h(rowIdx), tol, "SYMV: Failed");
+	}
+      }
     }
   }
-
 }  // symv_large()
 
 }  // namespace Test
@@ -255,12 +277,18 @@ template <class Scalar, class Ordinal, class Offset, class Device>
 void test_symv() {
 #if defined(KOKKOSKERNELS_INST_LAYOUTLEFT)
   Test::symv_deterministic_test<Scalar, Ordinal, Offset, Kokkos::LayoutLeft, Device>();
-  Test::symv_large<Scalar, Ordinal, Offset, Kokkos::LayoutLeft, Device>();
+
+  Test::symv_large<Scalar, Ordinal, Offset, Kokkos::LayoutLeft, Device>(17);
+  Test::symv_large<Scalar, Ordinal, Offset, Kokkos::LayoutLeft, Device>(942);
+  Test::symv_large<Scalar, Ordinal, Offset, Kokkos::LayoutLeft, Device>(2539);
 #endif
 
 #if defined(KOKKOSKERNELS_INST_LAYOUTRIGHT)
   Test::symv_deterministic_test<Scalar, Ordinal, Offset, Kokkos::LayoutRight, Device>();
-  Test::symv_large<Scalar, Ordinal, Offset, Kokkos::LayoutRight, Device>();
+
+  Test::symv_large<Scalar, Ordinal, Offset, Kokkos::LayoutRight, Device>(17);
+  Test::symv_large<Scalar, Ordinal, Offset, Kokkos::LayoutRight, Device>(942);
+  Test::symv_large<Scalar, Ordinal, Offset, Kokkos::LayoutRight, Device>(2539);
 #endif
 }
 
