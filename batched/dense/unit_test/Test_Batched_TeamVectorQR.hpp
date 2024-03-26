@@ -177,6 +177,11 @@ template <typename DeviceType, typename MatrixViewType, typename VectorViewType,
           typename WorkViewType, typename AlgoTagType>
 struct Functor_TestBatchedTeamVectorQR_analytic {
   using execution_space = typename DeviceType::execution_space;
+
+  struct computeQR{};
+  struct QtimesR{};
+  struct QtimesI{};
+
   MatrixViewType _a;
   MatrixViewType _b;
   VectorViewType _t;
@@ -190,10 +195,7 @@ struct Functor_TestBatchedTeamVectorQR_analytic {
     : _a(a), _b(b), _t(t), _w(w) {}
 
   template <typename MemberType>
-  KOKKOS_INLINE_FUNCTION void operator()(const MemberType &member) const {
-    using value_type = typename MatrixViewType::non_const_value_type;
-    // const value_type one = Kokkos::ArithTraits<value_type>::one();
-    const value_type zero  = Kokkos::ArithTraits<value_type>::zero();
+  KOKKOS_INLINE_FUNCTION void operator()(const computeQR&, const MemberType &member) const {
 
     const int k = member.league_rank();
     auto aa     = Kokkos::subview(_a, k, Kokkos::ALL(), Kokkos::ALL());
@@ -204,8 +206,46 @@ struct Functor_TestBatchedTeamVectorQR_analytic {
     /// AA = QR
     TeamVectorQR<MemberType, AlgoTagType>::invoke(member, aa, tt, ww);
     member.team_barrier();
+  }
 
-    // assign upper tridiagonal part to bb
+  template <typename MemberType>
+  KOKKOS_INLINE_FUNCTION void operator()(const QtimesI&, const MemberType &member) const {
+    using value_type = typename MatrixViewType::non_const_value_type;
+    const value_type one = Kokkos::ArithTraits<value_type>::one();
+    const value_type zero  = Kokkos::ArithTraits<value_type>::zero();
+
+    const int k = member.league_rank();
+    auto aa     = Kokkos::subview(_a, k, Kokkos::ALL(), Kokkos::ALL());
+    auto bb     = Kokkos::subview(_b, k, Kokkos::ALL(), Kokkos::ALL());
+    auto tt     = Kokkos::subview(_t, k, Kokkos::ALL());
+    auto ww     = Kokkos::subview(_w, k, Kokkos::ALL());
+
+    // assign I to bb
+    Kokkos::parallel_for(Kokkos::TeamVectorRange(member, aa.extent(0)),
+                         [&](const int &i) {
+                           for (int j = 0; j < aa.extent_int(1); ++j)
+                             bb(i, j) = (i == j ? one : zero);
+                         });
+    member.team_barrier();
+
+    // Multiply with Q
+    TeamVectorApplyQ<MemberType, Side::Left, Trans::NoTranspose,
+                     Algo::ApplyQ::Unblocked>::invoke(member, aa, tt, bb, ww);
+    member.team_barrier();
+  }
+
+  template <typename MemberType>
+  KOKKOS_INLINE_FUNCTION void operator()(const QtimesR&, const MemberType &member) const {
+    using value_type = typename MatrixViewType::non_const_value_type;
+    const value_type zero  = Kokkos::ArithTraits<value_type>::zero();
+
+    const int k = member.league_rank();
+    auto aa     = Kokkos::subview(_a, k, Kokkos::ALL(), Kokkos::ALL());
+    auto bb     = Kokkos::subview(_b, k, Kokkos::ALL(), Kokkos::ALL());
+    auto tt     = Kokkos::subview(_t, k, Kokkos::ALL());
+    auto ww     = Kokkos::subview(_w, k, Kokkos::ALL());
+
+    // assign I to bb
     Kokkos::parallel_for(Kokkos::TeamVectorRange(member, aa.extent(0)),
                          [&](const int &i) {
                            for (int j = 0; j < aa.extent_int(1); ++j)
@@ -219,15 +259,43 @@ struct Functor_TestBatchedTeamVectorQR_analytic {
     member.team_barrier();
   }
 
-  inline void run() {
+  inline void compute_factors() {
     using value_type = typename MatrixViewType::non_const_value_type;
-    std::string name_region("KokkosBatched::Test::TeamVectorQR_rectangular");
+    std::string name_region("KokkosBatched::Test::TeamVectorQR_analytical::computeQR");
     const std::string name_value_type = Test::value_type_name<value_type>();
     std::string name                  = name_region + name_value_type;
     Kokkos::Profiling::pushRegion(name.c_str());
 
     const int league_size = _a.extent(0);
-    Kokkos::TeamPolicy<execution_space> policy(league_size, Kokkos::AUTO);
+    Kokkos::TeamPolicy<execution_space, computeQR> policy(league_size, Kokkos::AUTO);
+
+    Kokkos::parallel_for(name.c_str(), policy, *this);
+    Kokkos::Profiling::popRegion();
+  }
+
+  inline void multiplyQandI() {
+    using value_type = typename MatrixViewType::non_const_value_type;
+    std::string name_region("KokkosBatched::Test::TeamVectorQR_analytical::QtimesI");
+    const std::string name_value_type = Test::value_type_name<value_type>();
+    std::string name                  = name_region + name_value_type;
+    Kokkos::Profiling::pushRegion(name.c_str());
+
+    const int league_size = _a.extent(0);
+    Kokkos::TeamPolicy<execution_space, QtimesI> policy(league_size, Kokkos::AUTO);
+
+    Kokkos::parallel_for(name.c_str(), policy, *this);
+    Kokkos::Profiling::popRegion();
+  }
+
+  inline void multiplyQandR() {
+    using value_type = typename MatrixViewType::non_const_value_type;
+    std::string name_region("KokkosBatched::Test::TeamVectorQR_analytical::QtimesR");
+    const std::string name_value_type = Test::value_type_name<value_type>();
+    std::string name                  = name_region + name_value_type;
+    Kokkos::Profiling::pushRegion(name.c_str());
+
+    const int league_size = _a.extent(0);
+    Kokkos::TeamPolicy<execution_space, QtimesR> policy(league_size, Kokkos::AUTO);
 
     Kokkos::parallel_for(name.c_str(), policy, *this);
     Kokkos::Profiling::popRegion();
@@ -274,7 +342,6 @@ void impl_test_batched_qr(const int N, const int BlkSize) {
       const mag_type sum  = ats::abs(x_host(k, i));
       const mag_type diff = ats::abs(x_host(k, i) - one);
       EXPECT_NEAR_KK(diff / sum, mag_type(0), eps);
-      // printf("k = %d, i = %d, sum %e diff %e \n", k, i, sum, diff );
     }
   }
 }
@@ -358,6 +425,10 @@ void impl_test_batched_qr_analytic(const int N) {
   VectorViewType t("t", N, 3);
   WorkViewType w("w", N, 20 * 3);
 
+  std::vector<double> Aref = {12, -51, 4, 6, 167, -68, -4, 24, -41};
+  std::vector<double> Qref = {6./7., -69./175, 58./175, 3./7, 158./175, -6./175, -2./7, 6./35, 33./35};
+  std::vector<double> Rref = {14, 21, -14, 0, 175, -70, 0, 0, -35};
+
   Kokkos::fence();
 
   typename MatrixViewType::HostMirror a_h = Kokkos::create_mirror_view(a);
@@ -368,12 +439,22 @@ void impl_test_batched_qr_analytic(const int N) {
   }
   Kokkos::deep_copy(a, a_h);
 
+  typename MatrixViewType::HostMirror b_h = Kokkos::create_mirror_view(b);
+  for(int matIdx = 0; matIdx < N; ++matIdx) {
+    b_h(matIdx, 0, 0) =  1; b_h(matIdx, 0, 1) =   0; b_h(matIdx, 0, 2) =   0;
+    b_h(matIdx, 1, 0) =  0; b_h(matIdx, 1, 1) =   1; b_h(matIdx, 1, 2) =   0;
+    b_h(matIdx, 2, 0) =  0; b_h(matIdx, 2, 1) =   0; b_h(matIdx, 2, 2) =   1;
+  }  
+  Kokkos::deep_copy(b, b_h);
+
   Kokkos::fence();
 
   Functor_TestBatchedTeamVectorQR_analytic<
-      DeviceType, MatrixViewType, VectorViewType, WorkViewType, AlgoTagType>(
-      a, b, t, w)
-      .run();
+    DeviceType, MatrixViewType, VectorViewType, WorkViewType, AlgoTagType> tester(a, b, t, w);
+
+  std::cout << "\nCompute Q and R factors" << std::endl;
+
+  tester.compute_factors();
 
   Kokkos::fence();
 
@@ -382,11 +463,55 @@ void impl_test_batched_qr_analytic(const int N) {
   Kokkos::deep_copy(t_h, t);
   Kokkos::deep_copy(a_h, a);
 
-  std::cout << "a = [" << a_h(0, 0, 0) << ", " << a_h(0, 0, 1) << ", " << a_h(0, 0, 2) << "]\n"
-	    << "    [" << a_h(0, 1, 0) << ", " << a_h(0, 1, 1) << ", " << a_h(0, 1, 2) << "]\n"
-	    << "    [" << a_h(0, 2, 0) << ", " << a_h(0, 2, 1) << ", " << a_h(0, 2, 2) << "]" << std::endl;
+  for(int i = 0; i < 3; ++i) {
+    for(int j = i; j < 3; ++j) {
+      if(Kokkos::abs(a_h(0, i, j) + Rref[3*i + j]) > 10e-6) {
+	std::cout << "R(i, j)=" << a_h(0, i, j) << ", Rref(i, j)=" << Rref[3*i + j] << std::endl;
+      }
+    }
+  }
 
-  std::cout << "t = [" << t_h(0, 0) << ", " << t_h(0, 1) << ", " << t_h(0, 2) << "]" << std::endl;
+  std::cout << "R = [" << a_h(0, 0, 0) << ", " << a_h(0, 0, 1) << ", " << a_h(0, 0, 2) << "]\n"
+	    << "    [" << 0.0          << ", " << a_h(0, 1, 1) << ", " << a_h(0, 1, 2) << "]\n"
+	    << "    [" << 0.0          << ", " << 0.0          << ", " << a_h(0, 2, 2) << "]" << std::endl;
+
+  std::cout << "\nCompute Q times I" << std::endl;
+
+  tester.multiplyQandI();
+
+  Kokkos::fence();
+  Kokkos::deep_copy(b_h, b);
+
+  for(int i = 0; i < 3; ++i) {
+    for(int j = 0; j < 3; ++j) {
+      if(Kokkos::abs(b_h(0, i, j) + Qref[3*i + j]) > 10e-6) {
+	std::cout << "Q(i, j)=" << b_h(0, i, j) << ", Qref(i, j)=" << Qref[3*i + j] << std::endl;
+      }
+    }
+  }
+
+  std::cout << "b = [" << b_h(0, 0, 0) << ", " << b_h(0, 0, 1) << ", " << b_h(0, 0, 2) << "]\n"
+	    << "    [" << b_h(0, 1, 0) << ", " << b_h(0, 1, 1) << ", " << b_h(0, 1, 2) << "]\n"
+	    << "    [" << b_h(0, 2, 0) << ", " << b_h(0, 2, 1) << ", " << b_h(0, 2, 2) << "]" << std::endl;
+
+  std::cout << "\nCompute Q times R" << std::endl;
+
+  tester.multiplyQandR();
+
+  Kokkos::fence();
+  Kokkos::deep_copy(b_h, b);
+
+  for(int i = 0; i < 3; ++i) {
+    for(int j = 0; j < 3; ++j) {
+      if(Kokkos::abs(b_h(0, i, j) - Aref[3*i + j]) > 10e-6) {
+	std::cout << "a(i, j)=" << b_h(0, i, j) << ", Aref(i, j)=" << Aref[3*i + j] << std::endl;
+      }
+    }
+  }
+
+  std::cout << "b = [" << b_h(0, 0, 0) << ", " << b_h(0, 0, 1) << ", " << b_h(0, 0, 2) << "]\n"
+	    << "    [" << b_h(0, 1, 0) << ", " << b_h(0, 1, 1) << ", " << b_h(0, 1, 2) << "]\n"
+	    << "    [" << b_h(0, 2, 0) << ", " << b_h(0, 2, 1) << ", " << b_h(0, 2, 2) << "]" << std::endl;
 }
 
 }  // namespace Test

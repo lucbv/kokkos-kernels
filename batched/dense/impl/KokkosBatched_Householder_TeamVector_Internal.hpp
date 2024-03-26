@@ -53,12 +53,6 @@ struct TeamVectorLeftHouseholderInternal {
         },
         norm_x2_square);
 
-    std::cout << "x2: {";
-    for(int i = 0; i < m_x2; ++i) {
-      std::cout << x2[i*x2s] << ", ";
-    }
-    std::cout << "}" << std::endl;
-
     /// if norm_x2 is zero, return with trivial values
     if (norm_x2_square == zero) {
       Kokkos::single(Kokkos::PerTeam(member), [&]() {
@@ -95,7 +89,6 @@ struct TeamVectorLeftHouseholderInternal {
       const mag_type chi1_minus_alpha_square =
           chi1_minus_alpha * chi1_minus_alpha;
       *tau = half + half * (norm_x2_square / chi1_minus_alpha_square);
-      std::cout << "norm_x2_square=" << norm_x2_square << ", alpha=" << alpha << ", chi1=" << *chi1 << std::endl;
 
       /// overwrite chi1 with alpha
       *chi1 = alpha;
