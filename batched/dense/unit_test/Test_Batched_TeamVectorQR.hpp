@@ -187,12 +187,21 @@ struct Functor_TestBatchedTeamVectorQR_analytic {
   VectorViewType _t;
   WorkViewType _w;
 
+  const int numRows;
+  const int numCols;
+
+  typename MatrixViewType::HostMirror a_h;
+  typename MatrixViewType::HostMirror b_h;
+
   KOKKOS_INLINE_FUNCTION
   Functor_TestBatchedTeamVectorQR_analytic(const MatrixViewType &a,
 					   const MatrixViewType &b,
 					   const VectorViewType &t,
 					   const WorkViewType &w)
-    : _a(a), _b(b), _t(t), _w(w) {}
+    : _a(a), _b(b), _t(t), _w(w), numRows(a.extent(1)), numCols(a.extent(2)) {
+    a_h = Kokkos::create_mirror_view(_a);
+    b_h = Kokkos::create_mirror_view(_b);
+  }
 
   template <typename MemberType>
   KOKKOS_INLINE_FUNCTION void operator()(const computeQR&, const MemberType &member) const {
@@ -259,7 +268,7 @@ struct Functor_TestBatchedTeamVectorQR_analytic {
     member.team_barrier();
   }
 
-  inline void compute_factors() {
+  inline void compute_factors(const std::vector<double>& Rref) {
     using value_type = typename MatrixViewType::non_const_value_type;
     std::string name_region("KokkosBatched::Test::TeamVectorQR_analytical::computeQR");
     const std::string name_value_type = Test::value_type_name<value_type>();
@@ -271,9 +280,21 @@ struct Functor_TestBatchedTeamVectorQR_analytic {
 
     Kokkos::parallel_for(name.c_str(), policy, *this);
     Kokkos::Profiling::popRegion();
+
+    Kokkos::deep_copy(a_h, _a);
+    const int factor  = (std::signbit(a_h(0,0,0)) == std::signbit(Rref[0])) ? 1 : -1;
+    const int matIdx  = static_cast<int>(_a.extent(0)/2);
+    for(int i = 0; i < numRows; ++i) {
+      for(int j = i; j < numCols; ++j) {
+	if(Kokkos::abs(a_h(matIdx, i, j) - factor*Rref[numCols*i + j]) > 10e-6) {
+	  std::cout << "R(" << i << ", " << j << ")=" << a_h(matIdx, i, j)
+		    << ", Rref(" << i << ", " << j << ")=" << Rref[numCols*i + j] << std::endl;
+	}
+      }
+    }
   }
 
-  inline void multiplyQandI() {
+  inline void multiplyQandI(const std::vector<double>& Qref) {
     using value_type = typename MatrixViewType::non_const_value_type;
     std::string name_region("KokkosBatched::Test::TeamVectorQR_analytical::QtimesI");
     const std::string name_value_type = Test::value_type_name<value_type>();
@@ -285,9 +306,22 @@ struct Functor_TestBatchedTeamVectorQR_analytic {
 
     Kokkos::parallel_for(name.c_str(), policy, *this);
     Kokkos::Profiling::popRegion();
+
+    Kokkos::deep_copy(b_h, _b);
+    const int factor = (std::signbit(b_h(0,0,0)) == std::signbit(Qref[0])) ? 1 : -1;
+    const int matIdx = static_cast<int>(_a.extent(0)/2);
+    for(int i = 0; i < numRows; ++i) {
+      for(int j = 0; j < numCols; ++j) {
+	if(Kokkos::abs(b_h(matIdx, i, j) - factor*Qref[numCols*i + j]) > 10e-6) {
+	  std::cout << "Q(" << i << ", " << j << ")=" << b_h(matIdx, i, j)
+		    << ", Qref(" << i << ", " << j << ")=" << Qref[numCols*i + j]
+		    << ", diff=" << Kokkos::abs(b_h(matIdx, i, j) - factor*Qref[numCols*i + j]) << std::endl;
+	}
+      }
+    }
   }
 
-  inline void multiplyQandR() {
+  inline void multiplyQandR(const std::vector<double>& Aref) {
     using value_type = typename MatrixViewType::non_const_value_type;
     std::string name_region("KokkosBatched::Test::TeamVectorQR_analytical::QtimesR");
     const std::string name_value_type = Test::value_type_name<value_type>();
@@ -299,6 +333,17 @@ struct Functor_TestBatchedTeamVectorQR_analytic {
 
     Kokkos::parallel_for(name.c_str(), policy, *this);
     Kokkos::Profiling::popRegion();
+
+    Kokkos::deep_copy(b_h, _b);
+    const int matIdx = static_cast<int>(_a.extent(0)/2);
+    for(int i = 0; i < numRows; ++i) {
+      for(int j = 0; j < numCols; ++j) {
+	if(Kokkos::abs(b_h(matIdx, i, j) - Aref[numCols*i + j]) > 10e-6) {
+	  std::cout << "A(" << i << ", " << j << ")=" << b_h(matIdx, i, j)
+		    << ", Aref(" << i << ", " << j << ")=" << Aref[numCols*i + j] << std::endl;
+	}
+      }
+    }
   }
 };
 
@@ -401,7 +446,7 @@ template <typename DeviceType, typename MatrixViewType, typename VectorViewType,
           typename WorkViewType, typename AlgoTagType>
 void impl_test_batched_qr_analytic(const int N) {
   // A = [12  -51    4]
-  //     [ 6  157  -68]
+  //     [ 6  167  -68]
   //     [-4   24  -41]
   //
   // Q = [ 6/7  -69/175  58/175]
@@ -411,108 +456,94 @@ void impl_test_batched_qr_analytic(const int N) {
   // R = [14   21  -14]
   //     [ 0  175  -70]
   //     [ 0    0  -35]
+  {
+    MatrixViewType a("a", N, 3, 3);
+    MatrixViewType b("b", N, 3, 3);
+    VectorViewType t("t", N, 3);
+    WorkViewType w("w", N, 20 * 3);
+
+    std::vector<double> Aref = {12, -51, 4, 6, 167, -68, -4, 24, -41};
+    std::vector<double> Qref = {6./7., -69./175, 58./175, 3./7, 158./175, -6./175, -2./7, 6./35, 33./35};
+    std::vector<double> Rref = {14, 21, -14, 0, 175, -70, 0, 0, -35};
+
+    typename MatrixViewType::HostMirror a_h = Kokkos::create_mirror_view(a);
+    typename MatrixViewType::HostMirror b_h = Kokkos::create_mirror_view(b);
+    for(int matIdx = 0; matIdx < N; ++matIdx) {
+      a_h(matIdx, 0, 0) = 12; a_h(matIdx, 0, 1) = -51; a_h(matIdx, 0, 2) =   4;
+      a_h(matIdx, 1, 0) =  6; a_h(matIdx, 1, 1) = 167; a_h(matIdx, 1, 2) = -68;
+      a_h(matIdx, 2, 0) = -4; a_h(matIdx, 2, 1) =  24; a_h(matIdx, 2, 2) = -41;
+    }
+    Kokkos::deep_copy(a, a_h);
+
+    Functor_TestBatchedTeamVectorQR_analytic<
+      DeviceType, MatrixViewType, VectorViewType, WorkViewType, AlgoTagType> tester(a, b, t, w);
+
+    tester.compute_factors(Rref);
+
+    tester.multiplyQandI(Qref);
+
+    tester.multiplyQandR(Aref);
+  }
+
+  // A = [12  -51    4  -2     24]
+  //     [ 6  167  -68  34     12]
+  //     [-4   24  -41  20.5   -8]
+  //     [ 0    0    0   3     16]
+  //     [ 0    0    0   4    -12]
   //
-  // v0 = 1/sqrt(14)*[-1]  ==> u0 = [ 1]
-  //                 [ 3]           [-3]
-  //                 [-2]           [ 2]
+  // Q = [ 6/7  -69/175  58/175    0     0]
+  //     [ 3/7  158/175  -6/175    0     0]
+  //     [-2/7    6/25   33/35     0     0]
+  //     [   0        0       0  3/5   4/5]
+  //     [   0        0       0  4/5  -3/5]
   //
-  // v1 = 1/280*[-224]     ==> u1 = [1]
-  //            [ 168]              [-168/224]
+  // R = [ 14   21  -14    7    28]
+  //     [  0  175  -70   35     0]
+  //     [  0    0  -35   17.5   0]
+  //     [  0    0    0    5     0]
+  //     [  0    0    0    0    20]
+  {
+    MatrixViewType a("a", N, 5, 5);
+    MatrixViewType b("b", N, 5, 5);
+    VectorViewType t("t", N, 5);
+    WorkViewType w("w", N, 20 * 5);
 
-  /// randomized input testing views
-  MatrixViewType a("a", N, 3, 3);
-  MatrixViewType b("b", N, 3, 3);
-  VectorViewType t("t", N, 3);
-  WorkViewType w("w", N, 20 * 3);
+    std::vector<double> Aref = {12, -51,   4,   -2,  24,
+				 6, 167, -68,   34,  12,
+				-4,  24, -41, 20.5,  -8,
+				 0,   0,   0,    3,  16,
+				 0,   0,   0,    4, -12};
+    std::vector<double> Qref = { 6./7, -69./175, 58./175,    0,     0,
+				 3./7, 158./175, -6./175,    0,     0,
+				-2./7,    6./35,  33./35,    0,     0,
+				    0,        0,       0, 3./5,  4./5,
+				    0,        0,       0, 4./5, -3./5};
+    std::vector<double> Rref = {14, 21, -14,    7, 28,
+				0, 175, -70,   35,  0,
+				0,   0, -35, 17.5,  0,
+				0,   0,   0,    5,  0,
+				0,   0,   0,    0, 20};
 
-  std::vector<double> Aref = {12, -51, 4, 6, 167, -68, -4, 24, -41};
-  std::vector<double> Qref = {6./7., -69./175, 58./175, 3./7, 158./175, -6./175, -2./7, 6./35, 33./35};
-  std::vector<double> Rref = {14, 21, -14, 0, 175, -70, 0, 0, -35};
-
-  Kokkos::fence();
-
-  typename MatrixViewType::HostMirror a_h = Kokkos::create_mirror_view(a);
-  for(int matIdx = 0; matIdx < N; ++matIdx) {
-    a_h(matIdx, 0, 0) = 12; a_h(matIdx, 0, 1) = -51; a_h(matIdx, 0, 2) =   4;
-    a_h(matIdx, 1, 0) =  6; a_h(matIdx, 1, 1) = 167; a_h(matIdx, 1, 2) = -68;
-    a_h(matIdx, 2, 0) = -4; a_h(matIdx, 2, 1) =  24; a_h(matIdx, 2, 2) = -41;
-  }
-  Kokkos::deep_copy(a, a_h);
-
-  typename MatrixViewType::HostMirror b_h = Kokkos::create_mirror_view(b);
-  for(int matIdx = 0; matIdx < N; ++matIdx) {
-    b_h(matIdx, 0, 0) =  1; b_h(matIdx, 0, 1) =   0; b_h(matIdx, 0, 2) =   0;
-    b_h(matIdx, 1, 0) =  0; b_h(matIdx, 1, 1) =   1; b_h(matIdx, 1, 2) =   0;
-    b_h(matIdx, 2, 0) =  0; b_h(matIdx, 2, 1) =   0; b_h(matIdx, 2, 2) =   1;
-  }  
-  Kokkos::deep_copy(b, b_h);
-
-  Kokkos::fence();
-
-  Functor_TestBatchedTeamVectorQR_analytic<
-    DeviceType, MatrixViewType, VectorViewType, WorkViewType, AlgoTagType> tester(a, b, t, w);
-
-  std::cout << "\nCompute Q and R factors" << std::endl;
-
-  tester.compute_factors();
-
-  Kokkos::fence();
-
-  /// for comparison send it to host
-  typename VectorViewType::HostMirror t_h = Kokkos::create_mirror_view(t);
-  Kokkos::deep_copy(t_h, t);
-  Kokkos::deep_copy(a_h, a);
-
-  const int matIdx = static_cast<int>(N/2);
-  for(int i = 0; i < 3; ++i) {
-    for(int j = i; j < 3; ++j) {
-      if(Kokkos::abs(a_h(matIdx, i, j) + Rref[3*i + j]) > 10e-6) {
-	std::cout << "R(i, j)=" << a_h(0, i, j) << ", Rref(i, j)=" << Rref[3*i + j] << std::endl;
+    typename MatrixViewType::HostMirror a_h = Kokkos::create_mirror_view(a);
+    typename MatrixViewType::HostMirror b_h = Kokkos::create_mirror_view(b);
+    for(int matIdx = 0; matIdx < N; ++matIdx) {
+      for(int i = 0; i < a.extent_int(1); ++i) {
+	for(int j = 0; j < a.extent_int(2); ++j) {
+	  a_h(matIdx, i, j) = Aref[i*a.extent_int(2) + j];
+	}
       }
     }
+    Kokkos::deep_copy(a, a_h);
+
+    Functor_TestBatchedTeamVectorQR_analytic<
+      DeviceType, MatrixViewType, VectorViewType, WorkViewType, AlgoTagType> tester(a, b, t, w);
+
+    tester.compute_factors(Rref);
+
+    tester.multiplyQandI(Qref);
+
+    tester.multiplyQandR(Aref);
   }
-
-  std::cout << "R = [" << a_h(matIdx, 0, 0) << ", " << a_h(matIdx, 0, 1) << ", " << a_h(matIdx, 0, 2) << "]\n"
-	    << "    [" << 0.0          << ", " << a_h(matIdx, 1, 1) << ", " << a_h(matIdx, 1, 2) << "]\n"
-	    << "    [" << 0.0          << ", " << 0.0          << ", " << a_h(matIdx, 2, 2) << "]" << std::endl;
-
-  std::cout << "\nCompute Q times I" << std::endl;
-
-  tester.multiplyQandI();
-
-  Kokkos::fence();
-  Kokkos::deep_copy(b_h, b);
-
-  for(int i = 0; i < 3; ++i) {
-    for(int j = 0; j < 3; ++j) {
-      if(Kokkos::abs(b_h(matIdx, i, j) + Qref[3*i + j]) > 10e-6) {
-	std::cout << "Q(i, j)=" << b_h(matIdx, i, j) << ", Qref(i, j)=" << Qref[3*i + j] << std::endl;
-      }
-    }
-  }
-
-  std::cout << "b = [" << b_h(matIdx, 0, 0) << ", " << b_h(matIdx, 0, 1) << ", " << b_h(matIdx, 0, 2) << "]\n"
-	    << "    [" << b_h(matIdx, 1, 0) << ", " << b_h(matIdx, 1, 1) << ", " << b_h(matIdx, 1, 2) << "]\n"
-	    << "    [" << b_h(matIdx, 2, 0) << ", " << b_h(matIdx, 2, 1) << ", " << b_h(matIdx, 2, 2) << "]" << std::endl;
-
-  std::cout << "\nCompute Q times R" << std::endl;
-
-  tester.multiplyQandR();
-
-  Kokkos::fence();
-  Kokkos::deep_copy(b_h, b);
-
-  for(int i = 0; i < 3; ++i) {
-    for(int j = 0; j < 3; ++j) {
-      if(Kokkos::abs(b_h(matIdx, i, j) - Aref[3*i + j]) > 10e-6) {
-	std::cout << "a(i, j)=" << b_h(matIdx, i, j) << ", Aref(i, j)=" << Aref[3*i + j] << std::endl;
-      }
-    }
-  }
-
-  std::cout << "b = [" << b_h(matIdx, 0, 0) << ", " << b_h(matIdx, 0, 1) << ", " << b_h(matIdx, 0, 2) << "]\n"
-	    << "    [" << b_h(matIdx, 1, 0) << ", " << b_h(matIdx, 1, 1) << ", " << b_h(matIdx, 1, 2) << "]\n"
-	    << "    [" << b_h(matIdx, 2, 0) << ", " << b_h(matIdx, 2, 1) << ", " << b_h(matIdx, 2, 2) << "]" << std::endl;
 }
 
 }  // namespace Test
