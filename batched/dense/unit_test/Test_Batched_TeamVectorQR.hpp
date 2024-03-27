@@ -463,17 +463,18 @@ void impl_test_batched_qr_analytic(const int N) {
   Kokkos::deep_copy(t_h, t);
   Kokkos::deep_copy(a_h, a);
 
+  const int matIdx = static_cast<int>(N/2);
   for(int i = 0; i < 3; ++i) {
     for(int j = i; j < 3; ++j) {
-      if(Kokkos::abs(a_h(0, i, j) + Rref[3*i + j]) > 10e-6) {
+      if(Kokkos::abs(a_h(matIdx, i, j) + Rref[3*i + j]) > 10e-6) {
 	std::cout << "R(i, j)=" << a_h(0, i, j) << ", Rref(i, j)=" << Rref[3*i + j] << std::endl;
       }
     }
   }
 
-  std::cout << "R = [" << a_h(0, 0, 0) << ", " << a_h(0, 0, 1) << ", " << a_h(0, 0, 2) << "]\n"
-	    << "    [" << 0.0          << ", " << a_h(0, 1, 1) << ", " << a_h(0, 1, 2) << "]\n"
-	    << "    [" << 0.0          << ", " << 0.0          << ", " << a_h(0, 2, 2) << "]" << std::endl;
+  std::cout << "R = [" << a_h(matIdx, 0, 0) << ", " << a_h(matIdx, 0, 1) << ", " << a_h(matIdx, 0, 2) << "]\n"
+	    << "    [" << 0.0          << ", " << a_h(matIdx, 1, 1) << ", " << a_h(matIdx, 1, 2) << "]\n"
+	    << "    [" << 0.0          << ", " << 0.0          << ", " << a_h(matIdx, 2, 2) << "]" << std::endl;
 
   std::cout << "\nCompute Q times I" << std::endl;
 
@@ -484,15 +485,15 @@ void impl_test_batched_qr_analytic(const int N) {
 
   for(int i = 0; i < 3; ++i) {
     for(int j = 0; j < 3; ++j) {
-      if(Kokkos::abs(b_h(0, i, j) + Qref[3*i + j]) > 10e-6) {
-	std::cout << "Q(i, j)=" << b_h(0, i, j) << ", Qref(i, j)=" << Qref[3*i + j] << std::endl;
+      if(Kokkos::abs(b_h(matIdx, i, j) + Qref[3*i + j]) > 10e-6) {
+	std::cout << "Q(i, j)=" << b_h(matIdx, i, j) << ", Qref(i, j)=" << Qref[3*i + j] << std::endl;
       }
     }
   }
 
-  std::cout << "b = [" << b_h(0, 0, 0) << ", " << b_h(0, 0, 1) << ", " << b_h(0, 0, 2) << "]\n"
-	    << "    [" << b_h(0, 1, 0) << ", " << b_h(0, 1, 1) << ", " << b_h(0, 1, 2) << "]\n"
-	    << "    [" << b_h(0, 2, 0) << ", " << b_h(0, 2, 1) << ", " << b_h(0, 2, 2) << "]" << std::endl;
+  std::cout << "b = [" << b_h(matIdx, 0, 0) << ", " << b_h(matIdx, 0, 1) << ", " << b_h(matIdx, 0, 2) << "]\n"
+	    << "    [" << b_h(matIdx, 1, 0) << ", " << b_h(matIdx, 1, 1) << ", " << b_h(matIdx, 1, 2) << "]\n"
+	    << "    [" << b_h(matIdx, 2, 0) << ", " << b_h(matIdx, 2, 1) << ", " << b_h(matIdx, 2, 2) << "]" << std::endl;
 
   std::cout << "\nCompute Q times R" << std::endl;
 
@@ -503,15 +504,15 @@ void impl_test_batched_qr_analytic(const int N) {
 
   for(int i = 0; i < 3; ++i) {
     for(int j = 0; j < 3; ++j) {
-      if(Kokkos::abs(b_h(0, i, j) - Aref[3*i + j]) > 10e-6) {
-	std::cout << "a(i, j)=" << b_h(0, i, j) << ", Aref(i, j)=" << Aref[3*i + j] << std::endl;
+      if(Kokkos::abs(b_h(matIdx, i, j) - Aref[3*i + j]) > 10e-6) {
+	std::cout << "a(i, j)=" << b_h(matIdx, i, j) << ", Aref(i, j)=" << Aref[3*i + j] << std::endl;
       }
     }
   }
 
-  std::cout << "b = [" << b_h(0, 0, 0) << ", " << b_h(0, 0, 1) << ", " << b_h(0, 0, 2) << "]\n"
-	    << "    [" << b_h(0, 1, 0) << ", " << b_h(0, 1, 1) << ", " << b_h(0, 1, 2) << "]\n"
-	    << "    [" << b_h(0, 2, 0) << ", " << b_h(0, 2, 1) << ", " << b_h(0, 2, 2) << "]" << std::endl;
+  std::cout << "b = [" << b_h(matIdx, 0, 0) << ", " << b_h(matIdx, 0, 1) << ", " << b_h(matIdx, 0, 2) << "]\n"
+	    << "    [" << b_h(matIdx, 1, 0) << ", " << b_h(matIdx, 1, 1) << ", " << b_h(matIdx, 1, 2) << "]\n"
+	    << "    [" << b_h(matIdx, 2, 0) << ", " << b_h(matIdx, 2, 1) << ", " << b_h(matIdx, 2, 2) << "]" << std::endl;
 }
 
 }  // namespace Test
@@ -540,7 +541,7 @@ int test_batched_qr() {
     // }
     Test::impl_test_batched_qr_analytic<DeviceType, MatrixViewType,
 					VectorViewType, WorkViewType,
-					AlgoTagType>(1);
+					AlgoTagType>(10);
   }
 #endif
 #if defined(KOKKOSKERNELS_INST_LAYOUTRIGHT)
@@ -564,7 +565,7 @@ int test_batched_qr() {
     // }
     Test::impl_test_batched_qr_analytic<DeviceType, MatrixViewType,
 					VectorViewType, WorkViewType,
-					AlgoTagType>(1);
+					AlgoTagType>(10);
   }
 #endif
 
