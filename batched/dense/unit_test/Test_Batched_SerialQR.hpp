@@ -43,9 +43,9 @@ void testQR() {
 
   constexpr int m = 3, n = 2;
 
-  MatrixViewType A("A", 3, 2), B("B", 3, 2);
-  ColVectorViewType t("t", 2);
-  ColWorkViewType w("w", 2);
+  MatrixViewType A("A", m, n), B("B", m, n);
+  ColVectorViewType t("t", n);
+  ColWorkViewType w("w", n);
 
   typename MatrixViewType::HostMirror A_h = Kokkos::create_mirror_view(A);
   A_h(0, 0)                               = 3;
