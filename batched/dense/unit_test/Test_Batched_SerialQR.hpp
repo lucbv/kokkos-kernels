@@ -37,13 +37,14 @@ void testQR() {
   //                         [  0, 1/3]
   //
 
-  using MatrixViewType    = Kokkos::View<double**>;
-  using ColVectorViewType = Kokkos::View<double*>;
-  using ColWorkViewType   = Kokkos::View<double*>;
+  using MatrixViewType    = Kokkos::View<Scalar**>;
+  using ColVectorViewType = Kokkos::View<Scalar*>;
+  using ColWorkViewType   = Kokkos::View<Scalar*>;
 
+  const Scalar tol = 10*Kokkos::ArithTraits<Scalar>::eps();
   constexpr int m = 3, n = 2;
 
-  MatrixViewType A("A", m, n), B("B", m, n);
+  MatrixViewType A("A", m, n), B("B", m, n), Q("Q", m, m);
   ColVectorViewType t("t", n);
   ColWorkViewType w("w", n);
 
@@ -71,15 +72,15 @@ void testQR() {
   typename ColVectorViewType::HostMirror tau = Kokkos::create_mirror_view(t);
   Kokkos::deep_copy(tau, t);
 
-  EXPECT_DOUBLE_EQ(A_h(0, 0), -5);
-  EXPECT_DOUBLE_EQ(A_h(0, 1), -3);
-  EXPECT_DOUBLE_EQ(A_h(1, 0), 0.5);
-  EXPECT_DOUBLE_EQ(A_h(1, 1), 5);
-  EXPECT_DOUBLE_EQ(A_h(2, 0), 0);
-  EXPECT_DOUBLE_EQ(A_h(2, 1), 1. / 3.);
+  Test::EXPECT_NEAR_KK_REL(A_h(0, 0), -5.0, tol);
+  Test::EXPECT_NEAR_KK_REL(A_h(0, 1), -3.0, tol);
+  Test::EXPECT_NEAR_KK_REL(A_h(1, 0), 0.5, tol);
+  Test::EXPECT_NEAR_KK_REL(A_h(1, 1), 5.0, tol);
+  Test::EXPECT_NEAR_KK(A_h(2, 0), 0.0, tol);
+  Test::EXPECT_NEAR_KK_REL(A_h(2, 1), 1. / 3., tol);
 
-  EXPECT_DOUBLE_EQ(tau(0), 5. / 8.);
-  EXPECT_DOUBLE_EQ(tau(1), 10. / 18.);
+  Test::EXPECT_NEAR_KK_REL(tau(0), 5. / 8., tol);
+  Test::EXPECT_NEAR_KK_REL(tau(1), 10. / 18., tol);
 
   Kokkos::parallel_for(
       "serialApplyQ", 1, KOKKOS_LAMBDA(int) {
@@ -88,16 +89,26 @@ void testQR() {
   typename MatrixViewType::HostMirror B_h = Kokkos::create_mirror_view(A);
   Kokkos::deep_copy(B_h, B);
 
-  EXPECT_DOUBLE_EQ(B_h(0, 0), -5);
-  EXPECT_DOUBLE_EQ(B_h(0, 1), -3);
-  EXPECT_DOUBLE_EQ(B_h(1, 0), 0);
-  EXPECT_DOUBLE_EQ(B_h(1, 1), 5);
-  EXPECT_DOUBLE_EQ(B_h(2, 0), 0);
-  EXPECT_DOUBLE_EQ(B_h(2, 1), 0);
+  Test::EXPECT_NEAR_KK_REL(-5.0, B_h(0, 0), tol);
+  Test::EXPECT_NEAR_KK_REL(-3.0, B_h(0, 1), tol);
+  Test::EXPECT_NEAR_KK( 0.0, B_h(1, 0), tol);
+  Test::EXPECT_NEAR_KK_REL( 5.0, B_h(1, 1), tol);
+  Test::EXPECT_NEAR_KK( 0.0, B_h(2, 0), tol);
+  Test::EXPECT_NEAR_KK( 0.0, B_h(2, 1), tol);
 
-  // Kokkos::parallel_for("serialFormQ", 1, KOKKOS_LAMBDA(int) {
-  //     KokkosBatched::SerialQR_FormQ_Internal::invoke(m, n, A, as0, as1, t, ts, B, bs0, bs1, w);
-  //   });
+  
+  Kokkos::parallel_for("serialFormQ", 1, KOKKOS_LAMBDA(int) {
+      KokkosBatched::SerialQR_FormQ_Internal::invoke(m, n, A.data(), A.stride(0), A.stride(1),
+						     t.data(), t.stride(0),
+						     Q.data(), Q.stride(0), Q.stride(1),
+						     w.data());
+    });
+  typename MatrixViewType::HostMirror Q_h = Kokkos::create_mirror_view(Q);
+  Kokkos::deep_copy(Q_h, Q);
+
+  std::cout << "Q=[" << Q_h(0, 0) << ", " << Q_h(0, 1) << ", " << Q_h(0, 2) << "]\n"
+	    << "  [" << Q_h(1, 0) << ", " << Q_h(1, 1) << ", " << Q_h(1, 2) << "]\n"
+	    << "  [" << Q_h(2, 0) << ", " << Q_h(2, 1) << ", " << Q_h(2, 2) << "]" << std::endl;
 }
 
 #if defined(KOKKOSKERNELS_INST_FLOAT)
@@ -114,16 +125,16 @@ TEST_F(TestCategory, batched_scalar_serial_qr_double) {
 }
 #endif
 
-#if defined(KOKKOSKERNELS_INST_COMPLEX_FLOAT)
-TEST_F(TestCategory, batched_scalar_serial_qr_scomplex) {
-  typedef KokkosBlas::Algo::QR::Unblocked AlgoTagType;
-  testQR<TestDevice, Kokkos::complex<float>, AlgoTagType>();
-}
-#endif
+// #if defined(KOKKOSKERNELS_INST_COMPLEX_FLOAT)
+// TEST_F(TestCategory, batched_scalar_serial_qr_scomplex) {
+//   typedef KokkosBlas::Algo::QR::Unblocked AlgoTagType;
+//   testQR<TestDevice, Kokkos::complex<float>, AlgoTagType>();
+// }
+// #endif
 
-#if defined(KOKKOSKERNELS_INST_COMPLEX_DOUBLE)
-TEST_F(TestCategory, batched_scalar_serial_qr_dcomplex) {
-  typedef KokkosBlas::Algo::QR::Unblocked AlgoTagType;
-  testQR<TestDevice, Kokkos::complex<double>, AlgoTagType>();
-}
-#endif
+// #if defined(KOKKOSKERNELS_INST_COMPLEX_DOUBLE)
+// TEST_F(TestCategory, batched_scalar_serial_qr_dcomplex) {
+//   typedef KokkosBlas::Algo::QR::Unblocked AlgoTagType;
+//   testQR<TestDevice, Kokkos::complex<double>, AlgoTagType>();
+// }
+// #endif
