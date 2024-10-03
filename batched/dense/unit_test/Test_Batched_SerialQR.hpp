@@ -25,7 +25,6 @@
 #include <KokkosBatched_Util.hpp>  // KokkosBlas::Algo
 #include <Kokkos_Core.hpp>
 
-
 template <class MatricesType, class IndexViewType, class TauViewType, class TmpViewType>
 struct qrFunctor {
   using Scalar = typename MatricesType::value_type;
@@ -41,22 +40,32 @@ struct qrFunctor {
   IndexViewType offsetQ;
 
   qrFunctor(const int maxMatSize_, MatricesType As_, IndexViewType numRows_, IndexViewType numCols_,
-	    IndexViewType offsetA_, TauViewType taus_, TmpViewType ws_, MatricesType Qs_,
-	    IndexViewType offsetQ_) : maxMatSize(maxMatSize_), As(As_), numRows(numRows_), numCols(numCols_),
-				      offsetA(offsetA_), taus(taus_), ws(ws_), Qs(Qs_), offsetQ(offsetQ_) {}
+            IndexViewType offsetA_, TauViewType taus_, TmpViewType ws_, MatricesType Qs_, IndexViewType offsetQ_)
+      : maxMatSize(maxMatSize_),
+        As(As_),
+        numRows(numRows_),
+        numCols(numCols_),
+        offsetA(offsetA_),
+        taus(taus_),
+        ws(ws_),
+        Qs(Qs_),
+        offsetQ(offsetQ_) {}
 
   KOKKOS_FUNCTION
   void operator()(const int matIdx) const {
-
-    Kokkos::View<Scalar**, Kokkos::MemoryTraits<Kokkos::Unmanaged>> A(&As(offsetA(matIdx)), numRows(matIdx), numCols(matIdx));
-    Kokkos::View<Scalar*, Kokkos::MemoryTraits<Kokkos::Unmanaged>> tau(&taus(matIdx*maxMatSize), Kokkos::min(numRows(matIdx), numCols(matIdx)));
-    Kokkos::View<Scalar*, Kokkos::MemoryTraits<Kokkos::Unmanaged>> w(&ws(matIdx*maxMatSize), Kokkos::min(numRows(matIdx), numCols(matIdx)));
-    Kokkos::View<Scalar**, Kokkos::MemoryTraits<Kokkos::Unmanaged>> Q(&Qs(offsetQ(matIdx)), numRows(matIdx), numRows(matIdx));
+    Kokkos::View<Scalar**, Kokkos::MemoryTraits<Kokkos::Unmanaged>> A(&As(offsetA(matIdx)), numRows(matIdx),
+                                                                      numCols(matIdx));
+    Kokkos::View<Scalar*, Kokkos::MemoryTraits<Kokkos::Unmanaged>> tau(&taus(matIdx * maxMatSize),
+                                                                       Kokkos::min(numRows(matIdx), numCols(matIdx)));
+    Kokkos::View<Scalar*, Kokkos::MemoryTraits<Kokkos::Unmanaged>> w(&ws(matIdx * maxMatSize),
+                                                                     Kokkos::min(numRows(matIdx), numCols(matIdx)));
+    Kokkos::View<Scalar**, Kokkos::MemoryTraits<Kokkos::Unmanaged>> Q(&Qs(offsetQ(matIdx)), numRows(matIdx),
+                                                                      numRows(matIdx));
 
     KokkosBatched::SerialQR<KokkosBlas::Algo::QR::Unblocked>::invoke(A, tau, w);
 
     // Store identity in Q
-    for(int idx = 0; idx < numRows(matIdx); ++idx) {
+    for (int idx = 0; idx < numRows(matIdx); ++idx) {
       Q(matIdx, matIdx) = Kokkos::ArithTraits<Scalar>::one();
     }
 
@@ -82,7 +91,7 @@ void test_QR_square() {
   using ColVectorViewType = Kokkos::View<Scalar*>;
   using ColWorkViewType   = Kokkos::View<Scalar*>;
 
-  const Scalar tol = 10*Kokkos::ArithTraits<Scalar>::eps();
+  const Scalar tol = 10 * Kokkos::ArithTraits<Scalar>::eps();
   constexpr int m = 3, n = 3;
 
   MatrixViewType A("A", m, n), B("B", m, n), Q("Q", m, m);
@@ -116,19 +125,19 @@ void test_QR_square() {
   typename ColVectorViewType::HostMirror tau = Kokkos::create_mirror_view(t);
   Kokkos::deep_copy(tau, t);
 
-  Test::EXPECT_NEAR_KK_REL(A_h(0, 0),  -14.0, tol);
-  Test::EXPECT_NEAR_KK_REL(A_h(0, 1),  -21.0, tol);
-  Test::EXPECT_NEAR_KK_REL(A_h(0, 2),   14.0, tol);
-  Test::EXPECT_NEAR_KK_REL(A_h(1, 0), 6.0 / 26.0, tol);
-  Test::EXPECT_NEAR_KK_REL(A_h(1, 1), -175.0, tol);
-  Test::EXPECT_NEAR_KK_REL(A_h(1, 2),   70.0, tol);
-  Test::EXPECT_NEAR_KK_REL(A_h(2, 0),   -4.0 / 26.0, tol);
+  Test::EXPECT_NEAR_KK_REL(A_h(0, 0), static_cast<Scalar>(-14), tol);
+  Test::EXPECT_NEAR_KK_REL(A_h(0, 1), static_cast<Scalar>(-21), tol);
+  Test::EXPECT_NEAR_KK_REL(A_h(0, 2), static_cast<Scalar>(14), tol);
+  Test::EXPECT_NEAR_KK_REL(A_h(1, 0), static_cast<Scalar>(6. / 26.), tol);
+  Test::EXPECT_NEAR_KK_REL(A_h(1, 1), static_cast<Scalar>(-175), tol);
+  Test::EXPECT_NEAR_KK_REL(A_h(1, 2), static_cast<Scalar>(70), tol);
+  Test::EXPECT_NEAR_KK_REL(A_h(2, 0), static_cast<Scalar>(-4.0 / 26.0), tol);
   // Test::EXPECT_NEAR_KK_REL(A_h(2, 1),   35.0, tol);      // Analytical expression too painful to compute...
-  Test::EXPECT_NEAR_KK_REL(A_h(2, 2),   35.0, tol);
+  Test::EXPECT_NEAR_KK_REL(A_h(2, 2), static_cast<Scalar>(35), tol);
 
-  Test::EXPECT_NEAR_KK_REL(tau(0), 7. / 13., tol);
+  Test::EXPECT_NEAR_KK_REL(tau(0), static_cast<Scalar>(7. / 13.), tol);
   // Test::EXPECT_NEAR_KK_REL(tau(1), 25. / 32., tol);      // Analytical expression too painful to compute...
-  Test::EXPECT_NEAR_KK_REL(tau(2), 1. / 2., tol);
+  Test::EXPECT_NEAR_KK_REL(tau(2), static_cast<Scalar>(1. / 2.), tol);
 
   Kokkos::parallel_for(
       "serialApplyQ", 1, KOKKOS_LAMBDA(int) {
@@ -137,35 +146,33 @@ void test_QR_square() {
   typename MatrixViewType::HostMirror B_h = Kokkos::create_mirror_view(B);
   Kokkos::deep_copy(B_h, B);
 
-  Test::EXPECT_NEAR_KK_REL(-14.0, B_h(0, 0), tol);
-  Test::EXPECT_NEAR_KK_REL(-21.0, B_h(0, 1), tol);
-  Test::EXPECT_NEAR_KK_REL( 14.0, B_h(0, 2), tol);
-  Test::EXPECT_NEAR_KK(  0.0, B_h(1, 0), tol);
-  Test::EXPECT_NEAR_KK_REL(-175.0, B_h(1, 1), tol);
-  Test::EXPECT_NEAR_KK_REL(  70.0, B_h(1, 2), tol);
-  Test::EXPECT_NEAR_KK(  0.0, B_h(2, 0), tol);
-  Test::EXPECT_NEAR_KK(  0.0, B_h(2, 1), tol);
-  Test::EXPECT_NEAR_KK_REL( 35.0, B_h(2, 2), tol);
+  Test::EXPECT_NEAR_KK_REL(static_cast<Scalar>(-14), B_h(0, 0), tol);
+  Test::EXPECT_NEAR_KK_REL(static_cast<Scalar>(-21), B_h(0, 1), tol);
+  Test::EXPECT_NEAR_KK_REL(static_cast<Scalar>(14), B_h(0, 2), tol);
+  Test::EXPECT_NEAR_KK(static_cast<Scalar>(0), B_h(1, 0), tol);
+  Test::EXPECT_NEAR_KK_REL(static_cast<Scalar>(-175), B_h(1, 1), tol);
+  Test::EXPECT_NEAR_KK_REL(static_cast<Scalar>(70), B_h(1, 2), tol);
+  Test::EXPECT_NEAR_KK(static_cast<Scalar>(0), B_h(2, 0), tol);
+  Test::EXPECT_NEAR_KK(static_cast<Scalar>(0), B_h(2, 1), tol);
+  Test::EXPECT_NEAR_KK_REL(static_cast<Scalar>(35), B_h(2, 2), tol);
 
-  
-  Kokkos::parallel_for("serialFormQ", 1, KOKKOS_LAMBDA(int) {
-      KokkosBatched::SerialQR_FormQ_Internal::invoke(m, n, A.data(), A.stride(0), A.stride(1),
-						     t.data(), t.stride(0),
-						     Q.data(), Q.stride(0), Q.stride(1),
-						     w.data());
-    });
+  Kokkos::parallel_for(
+      "serialFormQ", 1, KOKKOS_LAMBDA(int) {
+        KokkosBatched::SerialQR_FormQ_Internal::invoke(m, n, A.data(), A.stride(0), A.stride(1), t.data(), t.stride(0),
+                                                       Q.data(), Q.stride(0), Q.stride(1), w.data());
+      });
   typename MatrixViewType::HostMirror Q_h = Kokkos::create_mirror_view(Q);
   Kokkos::deep_copy(Q_h, Q);
 
-  Test::EXPECT_NEAR_KK_REL( -6.0 / 7.0, Q_h(0, 0), tol);
-  Test::EXPECT_NEAR_KK_REL( 69.0 / 175.0, Q_h(0, 1), tol);
-  Test::EXPECT_NEAR_KK_REL( -58.0 / 175.0, Q_h(0, 2), tol);
-  Test::EXPECT_NEAR_KK_REL( -3.0 / 7.0, Q_h(1, 0), tol);
-  Test::EXPECT_NEAR_KK_REL( -158.0 / 175.0, Q_h(1, 1), tol);
-  Test::EXPECT_NEAR_KK_REL( 6.0 / 175.0, Q_h(1, 2), tol);
-  Test::EXPECT_NEAR_KK_REL( 2.0 / 7.0, Q_h(2, 0), tol);
-  Test::EXPECT_NEAR_KK_REL( -6.0 / 35.0, Q_h(2, 1), tol);
-  Test::EXPECT_NEAR_KK_REL( -33.0 / 35.0, Q_h(2, 2), tol);
+  Test::EXPECT_NEAR_KK_REL(static_cast<Scalar>(-6. / 7.), Q_h(0, 0), tol);
+  Test::EXPECT_NEAR_KK_REL(static_cast<Scalar>(69. / 175.), Q_h(0, 1), tol);
+  Test::EXPECT_NEAR_KK_REL(static_cast<Scalar>(-58. / 175.), Q_h(0, 2), tol);
+  Test::EXPECT_NEAR_KK_REL(static_cast<Scalar>(-3. / 7.), Q_h(1, 0), tol);
+  Test::EXPECT_NEAR_KK_REL(static_cast<Scalar>(-158. / 175.), Q_h(1, 1), tol);
+  Test::EXPECT_NEAR_KK_REL(static_cast<Scalar>(6. / 175.), Q_h(1, 2), tol);
+  Test::EXPECT_NEAR_KK_REL(static_cast<Scalar>(2. / 7.), Q_h(2, 0), tol);
+  Test::EXPECT_NEAR_KK_REL(static_cast<Scalar>(-6. / 35.), Q_h(2, 1), tol);
+  Test::EXPECT_NEAR_KK_REL(static_cast<Scalar>(-33. / 35.), Q_h(2, 2), tol);
 
   Kokkos::parallel_for(
       "serialApplyQ", 1, KOKKOS_LAMBDA(int) {
@@ -173,18 +180,17 @@ void test_QR_square() {
       });
   Kokkos::deep_copy(Q_h, Q);
 
-  Test::EXPECT_NEAR_KK_REL(1.0, Q_h(0, 0), tol);
-  Test::EXPECT_NEAR_KK_REL(1.0, Q_h(1, 1), tol);
-  Test::EXPECT_NEAR_KK_REL(1.0, Q_h(2, 2), tol);
+  Test::EXPECT_NEAR_KK_REL(static_cast<Scalar>(1.), Q_h(0, 0), tol);
+  Test::EXPECT_NEAR_KK_REL(static_cast<Scalar>(1.), Q_h(1, 1), tol);
+  Test::EXPECT_NEAR_KK_REL(static_cast<Scalar>(1.), Q_h(2, 2), tol);
 
-  Test::EXPECT_NEAR_KK(0.0, Q_h(0, 1), tol);
-  Test::EXPECT_NEAR_KK(0.0, Q_h(0, 2), tol);
-  Test::EXPECT_NEAR_KK(0.0, Q_h(1, 0), tol);
-  Test::EXPECT_NEAR_KK(0.0, Q_h(1, 2), tol);
-  Test::EXPECT_NEAR_KK(0.0, Q_h(2, 0), tol);
-  Test::EXPECT_NEAR_KK(0.0, Q_h(2, 1), tol);
+  Test::EXPECT_NEAR_KK(static_cast<Scalar>(0.), Q_h(0, 1), tol);
+  Test::EXPECT_NEAR_KK(static_cast<Scalar>(0.), Q_h(0, 2), tol);
+  Test::EXPECT_NEAR_KK(static_cast<Scalar>(0.), Q_h(1, 0), tol);
+  Test::EXPECT_NEAR_KK(static_cast<Scalar>(0.), Q_h(1, 2), tol);
+  Test::EXPECT_NEAR_KK(static_cast<Scalar>(0.), Q_h(2, 0), tol);
+  Test::EXPECT_NEAR_KK(static_cast<Scalar>(0.), Q_h(2, 1), tol);
 }
-
 
 template <class Device, class Scalar, class AlgoTagType>
 void test_QR_rectangular() {
@@ -203,7 +209,7 @@ void test_QR_rectangular() {
   using ColVectorViewType = Kokkos::View<Scalar*>;
   using ColWorkViewType   = Kokkos::View<Scalar*>;
 
-  const Scalar tol = 10*Kokkos::ArithTraits<Scalar>::eps();
+  const Scalar tol = 10 * Kokkos::ArithTraits<Scalar>::eps();
   constexpr int m = 3, n = 2;
 
   MatrixViewType A("A", m, n), B("B", m, n), Q("Q", m, m);
@@ -234,12 +240,12 @@ void test_QR_rectangular() {
   typename ColVectorViewType::HostMirror tau = Kokkos::create_mirror_view(t);
   Kokkos::deep_copy(tau, t);
 
-  Test::EXPECT_NEAR_KK_REL(A_h(0, 0), -5.0, tol);
-  Test::EXPECT_NEAR_KK_REL(A_h(0, 1), -3.0, tol);
-  Test::EXPECT_NEAR_KK_REL(A_h(1, 0), 0.5, tol);
-  Test::EXPECT_NEAR_KK_REL(A_h(1, 1), 5.0, tol);
-  Test::EXPECT_NEAR_KK(A_h(2, 0), 0.0, tol);
-  Test::EXPECT_NEAR_KK_REL(A_h(2, 1), 1. / 3., tol);
+  Test::EXPECT_NEAR_KK_REL(A_h(0, 0), static_cast<Scalar>(-5.0), tol);
+  Test::EXPECT_NEAR_KK_REL(A_h(0, 1), static_cast<Scalar>(-3.0), tol);
+  Test::EXPECT_NEAR_KK_REL(A_h(1, 0), static_cast<Scalar>(0.5), tol);
+  Test::EXPECT_NEAR_KK_REL(A_h(1, 1), static_cast<Scalar>(5.0), tol);
+  Test::EXPECT_NEAR_KK(A_h(2, 0), static_cast<Scalar>(0.), tol);
+  Test::EXPECT_NEAR_KK_REL(A_h(2, 1), static_cast<Scalar>(1. / 3.), tol);
 
   Test::EXPECT_NEAR_KK_REL(tau(0), 5. / 8., tol);
   Test::EXPECT_NEAR_KK_REL(tau(1), 10. / 18., tol);
@@ -251,31 +257,30 @@ void test_QR_rectangular() {
   typename MatrixViewType::HostMirror B_h = Kokkos::create_mirror_view(B);
   Kokkos::deep_copy(B_h, B);
 
-  Test::EXPECT_NEAR_KK_REL(-5.0, B_h(0, 0), tol);
-  Test::EXPECT_NEAR_KK_REL(-3.0, B_h(0, 1), tol);
-  Test::EXPECT_NEAR_KK( 0.0, B_h(1, 0), tol);
-  Test::EXPECT_NEAR_KK_REL( 5.0, B_h(1, 1), tol);
-  Test::EXPECT_NEAR_KK( 0.0, B_h(2, 0), tol);
-  Test::EXPECT_NEAR_KK( 0.0, B_h(2, 1), tol);
+  Test::EXPECT_NEAR_KK_REL(static_cast<Scalar>(-5.0), B_h(0, 0), tol);
+  Test::EXPECT_NEAR_KK_REL(static_cast<Scalar>(-3.0), B_h(0, 1), tol);
+  Test::EXPECT_NEAR_KK(static_cast<Scalar>(0.), B_h(1, 0), tol);
+  Test::EXPECT_NEAR_KK_REL(static_cast<Scalar>(5.0), B_h(1, 1), tol);
+  Test::EXPECT_NEAR_KK(static_cast<Scalar>(0.), B_h(2, 0), tol);
+  Test::EXPECT_NEAR_KK(static_cast<Scalar>(0.), B_h(2, 1), tol);
 
-  Kokkos::parallel_for("serialFormQ", 1, KOKKOS_LAMBDA(int) {
-      KokkosBatched::SerialQR_FormQ_Internal::invoke(m, n, A.data(), A.stride(0), A.stride(1),
-						      t.data(), t.stride(0),
-						      Q.data(), Q.stride(0), Q.stride(1),
-						      w.data());
-    });
+  Kokkos::parallel_for(
+      "serialFormQ", 1, KOKKOS_LAMBDA(int) {
+        KokkosBatched::SerialQR_FormQ_Internal::invoke(m, n, A.data(), A.stride(0), A.stride(1), t.data(), t.stride(0),
+                                                       Q.data(), Q.stride(0), Q.stride(1), w.data());
+      });
   typename MatrixViewType::HostMirror Q_h = Kokkos::create_mirror_view(Q);
   Kokkos::deep_copy(Q_h, Q);
 
-  Test::EXPECT_NEAR_KK_REL(-0.60, Q_h(0, 0), tol);
-  Test::EXPECT_NEAR_KK_REL( 0.64, Q_h(0, 1), tol);
-  Test::EXPECT_NEAR_KK_REL( 0.48, Q_h(0, 2), tol);
-  Test::EXPECT_NEAR_KK_REL(-0.80, Q_h(1, 0), tol);
-  Test::EXPECT_NEAR_KK_REL(-0.48, Q_h(1, 1), tol);
-  Test::EXPECT_NEAR_KK_REL(-0.36, Q_h(1, 2), tol);
-  Test::EXPECT_NEAR_KK    ( 0.00, Q_h(2, 0), tol);
-  Test::EXPECT_NEAR_KK_REL(-0.60, Q_h(2, 1), tol);
-  Test::EXPECT_NEAR_KK_REL( 0.80, Q_h(2, 2), tol);
+  Test::EXPECT_NEAR_KK_REL(static_cast<Scalar>(-0.60), Q_h(0, 0), tol);
+  Test::EXPECT_NEAR_KK_REL(static_cast<Scalar>(0.64), Q_h(0, 1), tol);
+  Test::EXPECT_NEAR_KK_REL(static_cast<Scalar>(0.48), Q_h(0, 2), tol);
+  Test::EXPECT_NEAR_KK_REL(static_cast<Scalar>(-0.80), Q_h(1, 0), tol);
+  Test::EXPECT_NEAR_KK_REL(static_cast<Scalar>(-0.48), Q_h(1, 1), tol);
+  Test::EXPECT_NEAR_KK_REL(static_cast<Scalar>(-0.36), Q_h(1, 2), tol);
+  Test::EXPECT_NEAR_KK(static_cast<Scalar>(0.), Q_h(2, 0), tol);
+  Test::EXPECT_NEAR_KK_REL(static_cast<Scalar>(-0.60), Q_h(2, 1), tol);
+  Test::EXPECT_NEAR_KK_REL(static_cast<Scalar>(0.80), Q_h(2, 2), tol);
 
   Kokkos::parallel_for(
       "serialApplyQ", 1, KOKKOS_LAMBDA(int) {
@@ -283,16 +288,16 @@ void test_QR_rectangular() {
       });
   Kokkos::deep_copy(Q_h, Q);
 
-  Test::EXPECT_NEAR_KK_REL(1.0, Q_h(0, 0), tol);
-  Test::EXPECT_NEAR_KK_REL(1.0, Q_h(1, 1), tol);
-  Test::EXPECT_NEAR_KK_REL(1.0, Q_h(2, 2), tol);
+  Test::EXPECT_NEAR_KK_REL(static_cast<Scalar>(1.0), Q_h(0, 0), tol);
+  Test::EXPECT_NEAR_KK_REL(static_cast<Scalar>(1.0), Q_h(1, 1), tol);
+  Test::EXPECT_NEAR_KK_REL(static_cast<Scalar>(1.0), Q_h(2, 2), tol);
 
-  Test::EXPECT_NEAR_KK(0.0, Q_h(0, 1), tol);
-  Test::EXPECT_NEAR_KK(0.0, Q_h(0, 2), tol);
-  Test::EXPECT_NEAR_KK(0.0, Q_h(1, 0), tol);
-  Test::EXPECT_NEAR_KK(0.0, Q_h(1, 2), tol);
-  Test::EXPECT_NEAR_KK(0.0, Q_h(2, 0), tol);
-  Test::EXPECT_NEAR_KK(0.0, Q_h(2, 1), tol);
+  Test::EXPECT_NEAR_KK(static_cast<Scalar>(0.), Q_h(0, 1), tol);
+  Test::EXPECT_NEAR_KK(static_cast<Scalar>(0.), Q_h(0, 2), tol);
+  Test::EXPECT_NEAR_KK(static_cast<Scalar>(0.), Q_h(1, 0), tol);
+  Test::EXPECT_NEAR_KK(static_cast<Scalar>(0.), Q_h(1, 2), tol);
+  Test::EXPECT_NEAR_KK(static_cast<Scalar>(0.), Q_h(2, 0), tol);
+  Test::EXPECT_NEAR_KK(static_cast<Scalar>(0.), Q_h(2, 1), tol);
 }
 
 template <class Device, class Scalar, class AlgoTagType>
@@ -305,14 +310,14 @@ void test_QR_batch() {
 
   using ExecutionSpace = typename Device::execution_space;
 
-  constexpr int numMat = 314;
+  constexpr int numMat     = 314;
   constexpr int maxMatSize = 100;
   Kokkos::View<int*> numRows("rows in matrix", numMat);
   Kokkos::View<int*> numCols("cols in matrix", numMat);
   Kokkos::View<int*> offsetA("matrix offset", numMat + 1);
   Kokkos::View<int*> offsetQ("matrix offset", numMat + 1);
-  Kokkos::View<Scalar*> tau("tau", maxMatSize*numMat);
-  Kokkos::View<Scalar*> tmp("work buffer", maxMatSize*numMat);
+  Kokkos::View<Scalar*> tau("tau", maxMatSize * numMat);
+  Kokkos::View<Scalar*> tmp("work buffer", maxMatSize * numMat);
 
   typename Kokkos::View<int*>::HostMirror numRows_h = Kokkos::create_mirror_view(numRows);
   typename Kokkos::View<int*>::HostMirror numCols_h = Kokkos::create_mirror_view(numCols);
@@ -326,14 +331,14 @@ void test_QR_batch() {
   offsetA_h(0) = 0;
   offsetQ_h(0) = 0;
   int a = 0, b = 0;
-  for(int matIdx = 0; matIdx < numMat; ++matIdx) {
+  for (int matIdx = 0; matIdx < numMat; ++matIdx) {
     a = distrib(gen);
     b = distrib(gen);
 
-    numRows_h(matIdx) = Kokkos::max(a, b);
-    numCols_h(matIdx) = Kokkos::min(a, b);
-    offsetA_h(matIdx + 1) = offsetA_h(matIdx) + a*b;
-    offsetQ_h(matIdx + 1) = offsetQ_h(matIdx) + numRows_h(matIdx)*numRows_h(matIdx);
+    numRows_h(matIdx)     = Kokkos::max(a, b);
+    numCols_h(matIdx)     = Kokkos::min(a, b);
+    offsetA_h(matIdx + 1) = offsetA_h(matIdx) + a * b;
+    offsetQ_h(matIdx + 1) = offsetQ_h(matIdx) + numRows_h(matIdx) * numRows_h(matIdx);
   }
 
   Kokkos::deep_copy(numRows, numRows_h);
@@ -354,8 +359,7 @@ void test_QR_batch() {
   }
 
   qrFunctor myFunc(maxMatSize, mats, numRows, numCols, offsetA, tau, tmp, Qs, offsetQ);
-  Kokkos::parallel_for("KokkosBatched::test_QR_batch",
-		       Kokkos::RangePolicy<ExecutionSpace>(0, numMat), myFunc);
+  Kokkos::parallel_for("KokkosBatched::test_QR_batch", Kokkos::RangePolicy<ExecutionSpace>(0, numMat), myFunc);
 }
 
 #if defined(KOKKOSKERNELS_INST_FLOAT)
