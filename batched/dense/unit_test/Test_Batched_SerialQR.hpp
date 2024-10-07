@@ -66,7 +66,7 @@ struct qrFunctor {
 
     // Store identity in Q
     for (int idx = 0; idx < numRows(matIdx); ++idx) {
-      Q(matIdx, matIdx) = Kokkos::ArithTraits<Scalar>::one();
+      Q(idx, idx) = Kokkos::ArithTraits<Scalar>::one();
     }
 
     // Call ApplyQ on Q
