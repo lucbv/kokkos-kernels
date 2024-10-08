@@ -299,10 +299,10 @@ void test_QR_batch() {
 
   constexpr int numMat     = 314;
   constexpr int maxMatSize = 36;
-  Kokkos::View<Scalar**> tau("tau", numMat, maxMatSize);
-  Kokkos::View<Scalar**> tmp("work buffer", numMat, maxMatSize);
-  Kokkos::View<Scalar***> mats("matrices", numMat, maxMatSize, maxMatSize);
-  Kokkos::View<Scalar***> Qs("Q matrices", numMat, maxMatSize, maxMatSize);
+  Kokkos::View<Scalar**, ExecutionSpace> tau("tau", numMat, maxMatSize);
+  Kokkos::View<Scalar**, ExecutionSpace> tmp("work buffer", numMat, maxMatSize);
+  Kokkos::View<Scalar***, ExecutionSpace> mats("matrices", numMat, maxMatSize, maxMatSize);
+  Kokkos::View<Scalar***, ExecutionSpace> Qs("Q matrices", numMat, maxMatSize, maxMatSize);
 
   Kokkos::Random_XorShift64_Pool<ExecutionSpace> rand_pool(2718);
   constexpr double max_val = 1000;
