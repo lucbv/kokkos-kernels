@@ -36,11 +36,7 @@ struct qrFunctor {
   MatricesType Qs;
 
   qrFunctor(const int maxMatSize_, MatricesType As_, TauViewType taus_, TmpViewType ws_, MatricesType Qs_)
-      : maxMatSize(maxMatSize_),
-        As(As_),
-        taus(taus_),
-        ws(ws_),
-        Qs(Qs_) {}
+      : maxMatSize(maxMatSize_), As(As_), taus(taus_), ws(ws_), Qs(Qs_) {}
 
   KOKKOS_FUNCTION
   void operator()(const int matIdx) const {
