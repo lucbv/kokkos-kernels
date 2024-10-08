@@ -25,47 +25,34 @@
 #include <KokkosBatched_Util.hpp>  // KokkosBlas::Algo
 #include <Kokkos_Core.hpp>
 
-template <class MatricesType, class IndexViewType, class TauViewType, class TmpViewType>
+template <class MatricesType, class TauViewType, class TmpViewType>
 struct qrFunctor {
   using Scalar = typename MatricesType::value_type;
 
   int maxMatSize;
   MatricesType As;
-  IndexViewType numRows;
-  IndexViewType numCols;
-  IndexViewType offsetA;
   TauViewType taus;
   TmpViewType ws;
   MatricesType Qs;
-  IndexViewType offsetQ;
 
-  qrFunctor(const int maxMatSize_, MatricesType As_, IndexViewType numRows_, IndexViewType numCols_,
-            IndexViewType offsetA_, TauViewType taus_, TmpViewType ws_, MatricesType Qs_, IndexViewType offsetQ_)
+  qrFunctor(const int maxMatSize_, MatricesType As_, TauViewType taus_, TmpViewType ws_, MatricesType Qs_)
       : maxMatSize(maxMatSize_),
         As(As_),
-        numRows(numRows_),
-        numCols(numCols_),
-        offsetA(offsetA_),
         taus(taus_),
         ws(ws_),
-        Qs(Qs_),
-        offsetQ(offsetQ_) {}
+        Qs(Qs_) {}
 
   KOKKOS_FUNCTION
   void operator()(const int matIdx) const {
-    Kokkos::View<Scalar**, Kokkos::MemoryTraits<Kokkos::Unmanaged>> A(&As(offsetA(matIdx)), numRows(matIdx),
-                                                                      numCols(matIdx));
-    Kokkos::View<Scalar*, Kokkos::MemoryTraits<Kokkos::Unmanaged>> tau(&taus(matIdx * maxMatSize),
-                                                                       Kokkos::min(numRows(matIdx), numCols(matIdx)));
-    Kokkos::View<Scalar*, Kokkos::MemoryTraits<Kokkos::Unmanaged>> w(&ws(matIdx * maxMatSize),
-                                                                     Kokkos::min(numRows(matIdx), numCols(matIdx)));
-    Kokkos::View<Scalar**, Kokkos::MemoryTraits<Kokkos::Unmanaged>> Q(&Qs(offsetQ(matIdx)), numRows(matIdx),
-                                                                      numRows(matIdx));
+    auto A   = Kokkos::subview(As, matIdx, Kokkos::ALL, Kokkos::ALL);
+    auto tau = Kokkos::subview(taus, matIdx, Kokkos::ALL);
+    auto w   = Kokkos::subview(ws, matIdx, Kokkos::ALL);
+    auto Q   = Kokkos::subview(Qs, matIdx, Kokkos::ALL, Kokkos::ALL);
 
     KokkosBatched::SerialQR<KokkosBlas::Algo::QR::Unblocked>::invoke(A, tau, w);
 
     // Store identity in Q
-    for (int idx = 0; idx < numRows(matIdx); ++idx) {
+    for (int idx = 0; idx < maxMatSize; ++idx) {
       Q(idx, idx) = Kokkos::ArithTraits<Scalar>::one();
     }
 
@@ -311,44 +298,11 @@ void test_QR_batch() {
   using ExecutionSpace = typename Device::execution_space;
 
   constexpr int numMat     = 314;
-  constexpr int maxMatSize = 100;
-  Kokkos::View<int*> numRows("rows in matrix", numMat);
-  Kokkos::View<int*> numCols("cols in matrix", numMat);
-  Kokkos::View<int*> offsetA("matrix offset", numMat + 1);
-  Kokkos::View<int*> offsetQ("matrix offset", numMat + 1);
-  Kokkos::View<Scalar*> tau("tau", maxMatSize * numMat);
-  Kokkos::View<Scalar*> tmp("work buffer", maxMatSize * numMat);
-
-  typename Kokkos::View<int*>::HostMirror numRows_h = Kokkos::create_mirror_view(numRows);
-  typename Kokkos::View<int*>::HostMirror numCols_h = Kokkos::create_mirror_view(numCols);
-  typename Kokkos::View<int*>::HostMirror offsetA_h = Kokkos::create_mirror_view(offsetA);
-  typename Kokkos::View<int*>::HostMirror offsetQ_h = Kokkos::create_mirror_view(offsetQ);
-
-  std::mt19937 gen;
-  gen.seed(27182818);
-  std::uniform_int_distribution<int> distrib(1, maxMatSize);
-
-  offsetA_h(0) = 0;
-  offsetQ_h(0) = 0;
-  int a = 0, b = 0;
-  for (int matIdx = 0; matIdx < numMat; ++matIdx) {
-    a = distrib(gen);
-    b = distrib(gen);
-
-    numRows_h(matIdx)     = Kokkos::max(a, b);
-    numCols_h(matIdx)     = Kokkos::min(a, b);
-    offsetA_h(matIdx + 1) = offsetA_h(matIdx) + a * b;
-    offsetQ_h(matIdx + 1) = offsetQ_h(matIdx) + numRows_h(matIdx) * numRows_h(matIdx);
-  }
-
-  Kokkos::deep_copy(numRows, numRows_h);
-  Kokkos::deep_copy(numCols, numCols_h);
-  Kokkos::deep_copy(offsetA, offsetA_h);
-  Kokkos::deep_copy(offsetQ, offsetQ_h);
-
-  const int numVals = offsetA_h(numMat);
-  Kokkos::View<Scalar*> mats("matrices", numVals);
-  Kokkos::View<Scalar*> Qs("Q matrices", offsetQ_h(numMat));
+  constexpr int maxMatSize = 36;
+  Kokkos::View<Scalar**> tau("tau", numMat, maxMatSize);
+  Kokkos::View<Scalar**> tmp("work buffer", numMat, maxMatSize);
+  Kokkos::View<Scalar***> mats("matrices", numMat, maxMatSize, maxMatSize);
+  Kokkos::View<Scalar***> Qs("Q matrices", numMat, maxMatSize, maxMatSize);
 
   Kokkos::Random_XorShift64_Pool<ExecutionSpace> rand_pool(2718);
   constexpr double max_val = 1000;
@@ -358,7 +312,7 @@ void test_QR_batch() {
     Kokkos::fill_random(ExecutionSpace{}, mats, rand_pool, randStart, randEnd);
   }
 
-  qrFunctor myFunc(maxMatSize, mats, numRows, numCols, offsetA, tau, tmp, Qs, offsetQ);
+  qrFunctor myFunc(maxMatSize, mats, tau, tmp, Qs);
   Kokkos::parallel_for("KokkosBatched::test_QR_batch", Kokkos::RangePolicy<ExecutionSpace>(0, numMat), myFunc);
 }
 
