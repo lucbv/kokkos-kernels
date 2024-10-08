@@ -230,8 +230,8 @@ void test_QR_rectangular() {
   Test::EXPECT_NEAR_KK(A_h(2, 0), static_cast<Scalar>(0.), tol);
   Test::EXPECT_NEAR_KK_REL(A_h(2, 1), static_cast<Scalar>(1. / 3.), tol);
 
-  Test::EXPECT_NEAR_KK_REL(tau(0), 5. / 8., tol);
-  Test::EXPECT_NEAR_KK_REL(tau(1), 10. / 18., tol);
+  Test::EXPECT_NEAR_KK_REL(tau(0), static_cast<Scalar>(5. / 8.), tol);
+  Test::EXPECT_NEAR_KK_REL(tau(1), static_cast<Scalar>(10. / 18.), tol);
 
   Kokkos::parallel_for(
       "serialApplyQ", 1, KOKKOS_LAMBDA(int) {
