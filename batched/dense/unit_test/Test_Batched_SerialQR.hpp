@@ -35,8 +35,9 @@ struct qrFunctor {
   MatricesType Qs, Bs;
   ErrorViewType global_error;
 
-  qrFunctor(MatricesType As_, TauViewType taus_, TmpViewType ws_, MatricesType Qs_, MatricesType Bs_, ErrorViewType global_error_)
-    : As(As_), taus(taus_), ws(ws_), Qs(Qs_), Bs(Bs_), global_error(global_error_) {}
+  qrFunctor(MatricesType As_, TauViewType taus_, TmpViewType ws_, MatricesType Qs_, MatricesType Bs_,
+            ErrorViewType global_error_)
+      : As(As_), taus(taus_), ws(ws_), Qs(Qs_), Bs(Bs_), global_error(global_error_) {}
 
   KOKKOS_FUNCTION
   void operator()(const int matIdx) const {
@@ -46,8 +47,8 @@ struct qrFunctor {
     auto Q   = Kokkos::subview(Qs, matIdx, Kokkos::ALL, Kokkos::ALL);
     auto B   = Kokkos::subview(Bs, matIdx, Kokkos::ALL, Kokkos::ALL);
 
-    const Scalar SC_one  = Kokkos::ArithTraits<Scalar>::one();
-    const Scalar tol     = Kokkos::ArithTraits<Scalar>::eps()*10;
+    const Scalar SC_one = Kokkos::ArithTraits<Scalar>::one();
+    const Scalar tol    = Kokkos::ArithTraits<Scalar>::eps() * 10;
 
     int error = 0;
 
@@ -68,17 +69,17 @@ struct qrFunctor {
     // which should be the identity matrix
     for (int rowIdx = 0; rowIdx < Q.extent_int(0); ++rowIdx) {
       for (int colIdx = 0; colIdx < Q.extent_int(1); ++colIdx) {
-	if(rowIdx == colIdx) {
-	  if(Kokkos::abs(Q(rowIdx, colIdx) - SC_one) > tol) {
-	    error += 1;
-	    Kokkos::printf("Q(%d, %d)=%e instead of 1.0.\n", rowIdx, colIdx, Q(rowIdx, colIdx));
-	  }
-	} else {
-	  if(Kokkos::abs(Q(rowIdx, colIdx)) > tol) {
-	    error += 1;
-	    Kokkos::printf("Q(%d, %d)=%e instead of 0.0.\n", rowIdx, colIdx, Q(rowIdx, colIdx));
-	  }
-	}
+        if (rowIdx == colIdx) {
+          if (Kokkos::abs(Q(rowIdx, colIdx) - SC_one) > tol) {
+            error += 1;
+            Kokkos::printf("Q(%d, %d)=%e instead of 1.0.\n", rowIdx, colIdx, Q(rowIdx, colIdx));
+          }
+        } else {
+          if (Kokkos::abs(Q(rowIdx, colIdx)) > tol) {
+            error += 1;
+            Kokkos::printf("Q(%d, %d)=%e instead of 0.0.\n", rowIdx, colIdx, Q(rowIdx, colIdx));
+          }
+        }
       }
     }
     Kokkos::atomic_add(&global_error(), error);
@@ -88,17 +89,17 @@ struct qrFunctor {
     KokkosBatched::SerialApplyQ<Side::Left, Trans::Transpose, Algo::ApplyQ::Unblocked>::invoke(A, tau, B, w);
     for (int rowIdx = 0; rowIdx < B.extent_int(0); ++rowIdx) {
       for (int colIdx = 0; colIdx < B.extent_int(1); ++colIdx) {
-	if(rowIdx <= colIdx) {
-	  if(Kokkos::abs(B(rowIdx, colIdx) - A(rowIdx, colIdx)) > tol*Kokkos::abs(A(rowIdx, colIdx))) {
-	    error += 1;
-	    Kokkos::printf("B(%d, %d)=%e instead of %e.\n", rowIdx, colIdx, B(rowIdx, colIdx), A(rowIdx, colIdx));
-	  }
-	} else {
-	  if(Kokkos::abs(B(rowIdx, colIdx)) > 1000*tol) {
-	    error += 1;
-	    Kokkos::printf("B(%d, %d)=%e instead of 0.0.\n", rowIdx, colIdx, B(rowIdx, colIdx));
-	  }
-	}
+        if (rowIdx <= colIdx) {
+          if (Kokkos::abs(B(rowIdx, colIdx) - A(rowIdx, colIdx)) > tol * Kokkos::abs(A(rowIdx, colIdx))) {
+            error += 1;
+            Kokkos::printf("B(%d, %d)=%e instead of %e.\n", rowIdx, colIdx, B(rowIdx, colIdx), A(rowIdx, colIdx));
+          }
+        } else {
+          if (Kokkos::abs(B(rowIdx, colIdx)) > 1000 * tol) {
+            error += 1;
+            Kokkos::printf("B(%d, %d)=%e instead of 0.0.\n", rowIdx, colIdx, B(rowIdx, colIdx));
+          }
+        }
       }
     }
   }
@@ -340,7 +341,7 @@ void test_QR_batch() {
 
   using ExecutionSpace = typename Device::execution_space;
 
-  { // Square matrix case
+  {  // Square matrix case
     constexpr int numMat     = 314;
     constexpr int maxMatSize = 36;
     Kokkos::View<Scalar**, ExecutionSpace> tau("tau", numMat, maxMatSize);
@@ -367,7 +368,7 @@ void test_QR_batch() {
     EXPECT_EQ(global_error_h(), 0);
   }
 
-  { // Rectangular matrix case
+  {  // Rectangular matrix case
     constexpr int numMat  = 314;
     constexpr int numRows = 42;
     constexpr int numCols = 36;
