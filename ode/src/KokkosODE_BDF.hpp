@@ -118,7 +118,7 @@ struct BDF {
     }
 
     for (int stepIdx = init_steps; stepIdx < num_steps; ++stepIdx) {
-      KokkosODE::Impl::BDFStep(ode, table, t, dt, y0, y, rhs, update, scale, y_vecs, temp, jac);
+      KokkosODE::Impl::BDFStep(ode, table, t, dt + dt, y0, y, rhs, update, scale, y_vecs, temp, jac);
 
       // Update history
       for (int eqIdx = 0; eqIdx < ode.neqs; ++eqIdx) {
@@ -157,23 +157,28 @@ struct BDF {
 /// \param temp2 [in]: vectors for temporary storage
 template <class ode_type, class mat_type, class vec_type, class scalar_type>
 KOKKOS_FUNCTION void BDFSolve(const ode_type& ode, const scalar_type t_start, const scalar_type t_end,
-                              const scalar_type initial_step, const scalar_type max_step, const vec_type& y0,
-                              const vec_type& y_new, mat_type& temp, mat_type& temp2) {
+                              const scalar_type initial_step, const scalar_type /* max_step */, const vec_type& y0,
+                              const vec_type& y_new, mat_type& temp, mat_type& temp2, scalar_type atol,
+			      scalar_type rtol, int max_substeps) {
+  // YVV: BUG - for dynamic memory the temp2 buffer (used in the static pivoting)
+  // needs to be explicitly initialized to zero, don't rely on the user to do
+  // this. asking for kokkos view alloc w/o init is preferable as it avoids par
+  // fors.
+
   using KAT = Kokkos::ArithTraits<scalar_type>;
 
   // This needs to go away and be pulled out of temp instead...
   auto rhs    = Kokkos::subview(temp, Kokkos::ALL(), 0);
   auto update = Kokkos::subview(temp, Kokkos::ALL(), 1);
   // vec_type rhs("rhs", ode.neqs), update("update", ode.neqs);
-  (void)max_step;
 
   int order = 1, num_equal_steps = 0;
   constexpr scalar_type min_factor = 0.2;
   scalar_type dt                   = initial_step;
   scalar_type t                    = t_start;
 
+  // What does cvode use? let's use that.
   constexpr int max_newton_iters = 10;
-  scalar_type atol = 1.0e-6, rtol = 1.0e-3;
 
   // Compute rhs = f(t_start, y0)
   ode.evaluate_function(t_start, 0, y0, rhs);
@@ -194,14 +199,21 @@ KOKKOS_FUNCTION void BDFSolve(const ode_type& ode, const scalar_type t_start, co
 
   // Now we loop over the time interval [t_start, t_end]
   // and solve our ODE.
-  while (t < t_end) {
-    KokkosODE::Impl::BDFStep(ode, t, dt, t_end, order, num_equal_steps, max_newton_iters, atol, rtol, min_factor, y0,
-                             y_new, rhs, update, temp, temp2);
+  // YVV: TODO minimum dt option?
+  int count = 0;
+  bool compute_jac = true;
+  bool compute_dfdy = true;
+  while (t < t_end && count < max_substeps) {
+    KokkosODE::Impl::BDFStep(ode, t, dt, t_end, order, num_equal_steps,
+			     max_newton_iters, atol, rtol, min_factor, y0,
+                             y_new, rhs, update, temp, temp2, compute_jac,
+			     compute_dfdy);
 
     for (int eqIdx = 0; eqIdx < ode.neqs; ++eqIdx) {
       y0(eqIdx) = y_new(eqIdx);
     }
-    // printf("t=%f, dt=%f, y={%f, %f, %f}\n", t, dt, y0(0), y0(1), y0(2));
+    ++count;
+  // YVV - TODO: return error codes or success?
   }
 }  // BDFSolve
 

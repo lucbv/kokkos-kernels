@@ -20,6 +20,8 @@
 #include "Kokkos_Core.hpp"
 #include "KokkosBatched_LU_Decl.hpp"
 #include "KokkosBatched_LU_Serial_Impl.hpp"
+#include "KokkosBatched_Trsm_Decl.hpp"
+#include "KokkosBatched_Copy_Decl.hpp"
 #include "KokkosBatched_Gesv.hpp"
 #include "KokkosBlas1_nrm2.hpp"
 #include "KokkosBlas1_scal.hpp"
@@ -44,13 +46,9 @@ KOKKOS_FUNCTION KokkosODE::Experimental::newton_solver_status NewtonSolve(
       typename Kokkos::Details::InnerProductSpaceTraits<typename ini_vec_type::non_const_value_type>::mag_type;
   sys.residual(y0, rhs);
   const norm_type norm0 = KokkosBlas::serial_nrm2(rhs);
-  norm_type norm        = Kokkos::ArithTraits<norm_type>::zero();
   norm_type norm_old    = Kokkos::ArithTraits<norm_type>::zero();
   norm_type norm_new    = Kokkos::ArithTraits<norm_type>::zero();
   norm_type rate        = Kokkos::ArithTraits<norm_type>::zero();
-
-  const norm_type tol = Kokkos::max(10 * Kokkos::ArithTraits<norm_type>::eps() / params.rel_tol,
-                                    Kokkos::min(0.03, Kokkos::sqrt(params.rel_tol)));
 
   // LBV - 07/24/2023: for now assume that we take
   // a full Newton step. Eventually this value can
@@ -58,47 +56,109 @@ KOKKOS_FUNCTION KokkosODE::Experimental::newton_solver_status NewtonSolve(
   // improve convergence for difficult problems.
   const value_type alpha = Kokkos::ArithTraits<value_type>::one();
 
+  // YVV: TODO give it its own buffer and split stuff out, for now just-reusing part
+  // of the the static pivoting buffer
+  auto dfdy = Kokkos::subview(tmp, Kokkos::ALL,
+                              Kokkos::pair<int, int>(0, y0.extent_int(0)));
+
   // Iterate until maxIts or the tolerance is reached
-  for (int it = 0; it < params.max_iters; ++it) {  // handle.maxIters; ++it) {
+  for (int it = 0; it < params.max_iters; ++it) {
     // compute initial rhs
-    sys.residual(y0, rhs);
+    // sys.residual(y0, rhs);
+    int lin_solver_stat = 0;
 
     // Solve the following linearized
     // problem at each iteration: J*update=-rhs
     // with J=du/dx, rhs=f(u_n+update)-f(u_n)
 
     // compute LHS
-    sys.jacobian(y0, J);
+    sys.jacobian(y0, dfdy, J);
 
-    // solve linear problem
-    int linSolverStat = KokkosBatched::SerialGesv<KokkosBatched::Gesv::StaticPivoting>::invoke(J, update, rhs, tmp);
-    KokkosBlas::SerialScale::invoke(-1, update);
+    { // solve linear problem
+      // J = I - c * dfdy, re-use dfdy as much as possible!
+      if (sys.compute_jac || sys.compute_dfdy) {
+	// printf("...computing jac and LU factorization!\n");
+	lin_solver_stat = KokkosBatched::SerialLU<
+          KokkosBatched::Algo::Level3::Unblocked>::invoke(J);
+	sys.compute_jac = false;
+	sys.compute_dfdy = false;
+      }
+ 
+      // TODO partial pivoting, or make static pivoting more robust.
+      if (lin_solver_stat == 0) {
+	// copy rhs into update, update will modified in place
+	lin_solver_stat =
+          KokkosBatched::SerialCopy<KokkosBatched::Trans::NoTranspose,
+                                    1>::invoke(rhs, update);
+      }
+                                    
+      if (lin_solver_stat == 0) {
+	lin_solver_stat = KokkosBatched::SerialTrsm<
+          KokkosBatched::Side::Left, KokkosBatched::Uplo::Lower,
+          KokkosBatched::Trans::NoTranspose, KokkosBatched::Diag::Unit,
+          KokkosBatched::Algo::Level3::Unblocked>::invoke(1.0, J, update);
+      }
 
-    // update solution // x = x + alpha*update
-    KokkosBlas::serial_axpy(alpha, update, y0);
-    norm = KokkosBlas::serial_nrm2(rhs);
-
-    // Compute rms norm of the scaled update
-    for (int idx = 0; idx < sys.neqs; ++idx) {
-      norm_new = (update(idx) * update(idx)) / (scale(idx) * scale(idx));
-    }
-    norm_new = Kokkos::sqrt(norm_new / sys.neqs);
-    if ((it > 0) && norm_old > Kokkos::ArithTraits<norm_type>::zero()) {
-      rate = norm_new / norm_old;
-      if ((rate >= 1) || Kokkos::pow(rate, params.max_iters - it) / (1 - rate) * norm_new > tol) {
-        return newton_solver_status::NLS_DIVERGENCE;
-      } else if ((norm_new == 0) || ((rate / (1 - rate)) * norm_new < tol)) {
-        return newton_solver_status::NLS_SUCCESS;
+      if (lin_solver_stat == 0) {
+	lin_solver_stat = KokkosBatched::SerialTrsm<
+          KokkosBatched::Side::Left, KokkosBatched::Uplo::Upper,
+          KokkosBatched::Trans::NoTranspose, KokkosBatched::Diag::NonUnit,
+          KokkosBatched::Algo::Level3::Unblocked>::invoke(1.0, J, update);
+      }
+      if (lin_solver_stat == 1) {
+	Kokkos::printf("NewtonFunctor: Linear solve gesv returned failure! \n");
+	return newton_solver_status::LIN_SOLVE_FAIL;
       }
     }
 
-    if (linSolverStat == 1) {
-      Kokkos::printf("NewtonFunctor: Linear solve gesv returned failure! \n");
-      return newton_solver_status::LIN_SOLVE_FAIL;
+    // update solution // y0 = y0 - alpha * update
+    for (int eqIdx = 0; eqIdx < sys.neqs; ++eqIdx) {
+      y0(eqIdx) -= alpha * update(eqIdx);
     }
 
-    if ((norm < (params.rel_tol * norm0)) || (it > 0 ? KokkosBlas::serial_nrm2(update) < params.abs_tol : false)) {
+    // Compute rms norm of the scaled update
+    norm_new = 0;
+    for (int eqIdx = 0; eqIdx < sys.neqs; ++eqIdx) {
+      norm_new += (update(eqIdx) * update(eqIdx)) / (scale(eqIdx) * scale(eqIdx));
+    }
+    norm_new = Kokkos::sqrt(norm_new / sys.neqs);
+
+    constexpr double safety_factor = 0.1;
+
+    if (it == 0 && norm_new < safety_factor) {
       return newton_solver_status::NLS_SUCCESS;
+    }
+
+    rate = (it > 0 && norm_old > Kokkos::ArithTraits<norm_type>::zero()) ? norm_new / norm_old : 1;
+
+    const auto norm_k = KokkosBlas::serial_nrm2(rhs);
+
+    if (it == 0) {
+
+      sys.residual(y0, rhs);
+
+      constexpr double relative_residual_tol = 1e-6;
+      const bool small_relative_residual =
+          norm_k < relative_residual_tol * norm0;
+
+      if (small_relative_residual) {
+        return newton_solver_status::NLS_SUCCESS;
+      }
+    } else if (rate * norm_new < safety_factor) {
+      return newton_solver_status::NLS_SUCCESS;
+    } else {
+      // if it >=1, estimate if we will hit max iters based on current
+      // rate
+      const auto iters_left = params.max_iters - (it + 1);
+      if (Kokkos::pow(rate, iters_left) * norm_new > safety_factor) {
+        return newton_solver_status::MAX_ITER;
+      }
+    }
+
+    // we already updated for it == 0 check don't waste another update..
+    // this also avoids updating if we aren't going to converge...
+    if (it != 0){
+      sys.residual(y0, rhs);
     }
 
     norm_old = norm_new;

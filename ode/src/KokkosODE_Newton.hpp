@@ -32,7 +32,7 @@ namespace Experimental {
 struct Newton {
   template <class system_type, class mat_type, class ini_vec_type, class rhs_vec_type, class update_type,
             class scale_type>
-  KOKKOS_FUNCTION static newton_solver_status Solve(const system_type& sys, const Newton_params& params,
+  KOKKOS_FUNCTION static newton_solver_status Solve(system_type& sys, const Newton_params& params,
                                                     const mat_type& J, const mat_type& tmp, const ini_vec_type& y0,
                                                     const rhs_vec_type& rhs, const update_type& update,
                                                     const scale_type& scale) {

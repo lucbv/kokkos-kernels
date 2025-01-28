@@ -69,13 +69,16 @@ struct BDF_table<6> {
 
 template <class system_type, class table_type, class mv_type>
 struct BDF_system_wrapper {
-  const system_type mySys;
+  const system_type& mySys;
   const int neqs;
   const table_type table;
   const int order = table.order;
 
   double t, dt;
   mv_type yn;
+
+  bool compute_jac = true;
+  bool compute_dfdy = true;
 
   KOKKOS_FUNCTION
   BDF_system_wrapper(const system_type& mySys_, const table_type& table_, const double t_, const double dt_,
@@ -95,13 +98,15 @@ struct BDF_system_wrapper {
     }
   }
 
-  template <class vec_type, class mat_type>
-  KOKKOS_FUNCTION void jacobian(const vec_type& y, const mat_type& jac) const {
-    mySys.evaluate_jacobian(t, dt, y, jac);
+  // YVV - TODO: make dfdy its own buffer and remove separate types
+  template <class vec_type, class dfdy_type, class jac_type>
+  KOKKOS_FUNCTION void jacobian(const vec_type& y, const dfdy_type& dfdy, const jac_type& jac) const {
+    // TODO only re-compute when needed
+    mySys.evaluate_jacobian(t, dt, y, dfdy);
 
     for (int rowIdx = 0; rowIdx < neqs; ++rowIdx) {
       for (int colIdx = 0; colIdx < neqs; ++colIdx) {
-        jac(rowIdx, colIdx) = -table.coefficients[order] * dt * jac(rowIdx, colIdx);
+        jac(rowIdx, colIdx) = -table.coefficients[order] * dt * dfdy(rowIdx, colIdx);
       }
       jac(rowIdx, rowIdx) += 1.0;
     }
@@ -110,42 +115,43 @@ struct BDF_system_wrapper {
 
 template <class system_type, class subview_type, class d_vec_type>
 struct BDF_system_wrapper2 {
-  const system_type mySys;
+  // YVV: store by ref, ode models may use several hundred bytes on the stack
+  const system_type& mySys;
   const int neqs;
   const subview_type psi;
-  const d_vec_type d;
+  const d_vec_type y_pred;
 
+  bool compute_dfdy = true;
   bool compute_jac = true;
   double t, dt, c = 0;
 
   KOKKOS_FUNCTION
-  BDF_system_wrapper2(const system_type& mySys_, const subview_type& psi_, const d_vec_type& d_, const double t_,
+  BDF_system_wrapper2(const system_type& mySys_, const subview_type& psi_, const d_vec_type& y_pred_, const double t_,
                       const double dt_)
-      : mySys(mySys_), neqs(mySys_.neqs), psi(psi_), d(d_), t(t_), dt(dt_) {}
+      : mySys(mySys_), neqs(mySys_.neqs), psi(psi_), y_pred(y_pred_), t(t_), dt(dt_) {}
 
   template <class YVectorType, class FVectorType>
   KOKKOS_FUNCTION void residual(const YVectorType& y, const FVectorType& f) const {
     // f = f(t+dt, y)
+    // YVV: why is dt in the interface? it should be removed.
     mySys.evaluate_function(t, dt, y, f);
-
-    // std::cout << "f = psi + d - c * f = " << psi(0) << " + " << d(0) << " - "
-    // << c << " * " << f(0) << std::endl;
 
     // rhs = higher order terms + y_{n+1}^i - y_n - dt*f
     for (int eqIdx = 0; eqIdx < neqs; ++eqIdx) {
-      f(eqIdx) = psi(eqIdx) + d(eqIdx) - c * f(eqIdx);
+      f(eqIdx) = psi(eqIdx) + y(eqIdx) - y_pred(eqIdx) - c * f(eqIdx);
     }
   }
 
   template <class vec_type, class mat_type>
-  KOKKOS_FUNCTION void jacobian(const vec_type& y, const mat_type& jac) const {
-    if (compute_jac) {
+  KOKKOS_FUNCTION void jacobian(const vec_type& y, const mat_type& dfdy, const mat_type& jac) const {
+    if (compute_dfdy) {
       mySys.evaluate_jacobian(t, dt, y, jac);
+    }
 
-      // J = I - dt*(df/dy)
+    if (compute_dfdy || compute_jac) {
       for (int rowIdx = 0; rowIdx < neqs; ++rowIdx) {
         for (int colIdx = 0; colIdx < neqs; ++colIdx) {
-          jac(rowIdx, colIdx) = -dt * jac(rowIdx, colIdx);
+          jac(rowIdx, colIdx) = -c * dfdy(rowIdx, colIdx);
         }
         jac(rowIdx, rowIdx) += 1.0;
       }
@@ -265,9 +271,12 @@ KOKKOS_FUNCTION void BDFStep(ode_type& ode, scalar_type& t, scalar_type& dt, sca
                              int& num_equal_steps, const int max_newton_iters, const scalar_type atol,
                              const scalar_type rtol, const scalar_type min_factor, const vec_type& y_old,
                              const vec_type& y_new, const res_type& rhs, const res_type& update, const mat_type& temp,
-                             const mat_type& temp2) {
+                             const mat_type& temp2, bool& compute_jac, bool& compute_dfdy) {
   using newton_params = KokkosODE::Experimental::Newton_params;
 
+  // YVV - TODO: make that a use option
+  // LBV: we can allow the user to cap it lower, like 3 or 4
+  //      but 5 is the highest stable formula.
   constexpr int max_order = 5;
 
   // For NDF coefficients see Sahmpine and Reichelt, The Matlab ODE suite, SIAM
@@ -314,21 +323,27 @@ KOKKOS_FUNCTION void BDFStep(ode_type& ode, scalar_type& t, scalar_type& dt, sca
   gamma(4)    = 2.08333333;
   gamma(5)    = 2.28333333;
 
-  BDF_system_wrapper2 sys(ode, psi, update, t, dt);
-  const newton_params param(
-      max_newton_iters, atol,
-      Kokkos::max(10 * Kokkos::ArithTraits<scalar_type>::eps() / rtol, Kokkos::min(0.03, Kokkos::sqrt(rtol))));
+  BDF_system_wrapper2 sys(ode, psi, y_predict, t, dt);
+
+  // BUG - was calling the
+  // commented out code 2x on the rel tol and then using that in rate check. I'm
+  // also not sure what those hardcoded factors are?
+  const newton_params param(max_newton_iters, atol, rtol);
+      // Kokkos::max(10 * Kokkos::ArithTraits<scalar_type>::eps() / rtol, Kokkos::min(0.03, Kokkos::sqrt(rtol))));
 
   scalar_type max_step = Kokkos::ArithTraits<scalar_type>::max();
   scalar_type min_step = Kokkos::ArithTraits<scalar_type>::min();
-  scalar_type safety = 0.675, error_norm = 0.0;
+  const scalar_type safety = 0.9;
+  scalar_type error_norm = 0.0;
   if (dt > max_step) {
     update_D(order, max_step / dt, coeffs, tempD, D);
     dt              = max_step;
+    compute_jac = true;
     num_equal_steps = 0;
   } else if (dt < min_step) {
     update_D(order, min_step / dt, coeffs, tempD, D);
     dt              = min_step;
+    compute_jac = true;
     num_equal_steps = 0;
   }
 
@@ -339,6 +354,10 @@ KOKKOS_FUNCTION void BDFStep(ode_type& ode, scalar_type& t, scalar_type& dt, sca
 
   double t_new       = 0;
   bool step_accepted = false;
+  int failure_count = 0;
+
+  // YVV - BUG: fix endless loop (use the failure count), things can go wrong w/ step
+  // never accepted..
   while (!step_accepted) {
     if (dt < min_step) {
       return;
@@ -351,6 +370,7 @@ KOKKOS_FUNCTION void BDFStep(ode_type& ode, scalar_type& t, scalar_type& dt, sca
       num_equal_steps = 0;
     }
     dt = t_new - t;
+    compute_jac = true;
 
     for (int eqIdx = 0; eqIdx < sys.neqs; ++eqIdx) {
       y_predict(eqIdx) = 0;
@@ -366,27 +386,54 @@ KOKKOS_FUNCTION void BDFStep(ode_type& ode, scalar_type& t, scalar_type& dt, sca
     auto subGamma = Kokkos::subview(gamma, Kokkos::pair<int, int>(1, order + 1));
     KokkosBlas::Experimental::serial_gemv('N', 1.0 / alpha[order], subD, subGamma, 0.0, psi);
 
-    sys.compute_jac = true;
     sys.c           = dt / alpha[order];
-    sys.jacobian(y_new, jac);
-    sys.compute_jac = true;
+
+    // BUG - should always eval rhs at t_{n + 1}, add unit test w/ polnomial
+    // w/ explicit t dependence show exact reproduction for given order. Not
+    // possible w/ adaptive which is why we should share impls w/ uniform.
+    sys.t           = t_new;
+    sys.compute_jac = compute_jac;
+    sys.compute_dfdy = compute_dfdy;
     Kokkos::Experimental::local_deep_copy(y_new, y_predict);
     Kokkos::Experimental::local_deep_copy(update, 0);
     KokkosODE::Experimental::newton_solver_status newton_status =
         KokkosODE::Experimental::Newton::Solve(sys, param, jac, tmp_gesv, y_new, rhs, update, scale);
 
-    for (int eqIdx = 0; eqIdx < sys.neqs; ++eqIdx) {
-      update(eqIdx) = y_new(eqIdx) - y_predict(eqIdx);
-    }
+    compute_jac = false;
+    compute_dfdy = false;
 
-    if (newton_status == KokkosODE::Experimental::newton_solver_status::MAX_ITER) {
-      dt = 0.5 * dt;
-      update_D(order, 0.5, coeffs, tempD, D);
+    // If its not a success it means we may have a junk value
+    // for y_new and should not go down the else path below. e.g. X lin solve
+    // failures in a row should be a hard error.
+    if (newton_status !=
+        KokkosODE::Experimental::newton_solver_status::NLS_SUCCESS) {
+      // printf("...newton status = %i, dt = %.3e -> %.3e\n",
+      //        newton_status, dt, 0.5 * dt);
+
+      failure_count++;
+
+      // cut step by 2^i, where is the failure count, effectively compensating a
+      // bad dt0 (i.e, y_pred will be far away from the root, hitting max iters)
+      const auto dt_reduction_factor = 1. / (1 << failure_count);
+      dt *= dt_reduction_factor;
+
+      // force to re-compute dfdy on failure
+      compute_dfdy = true;
+      compute_jac = true;
+
+      update_D(order, dt_reduction_factor, coeffs, tempD, D);
+
       num_equal_steps = 0;
+ 
+     } else {
 
-    } else {
-      // Estimate the solution error
-      safety     = 0.9 * (2 * max_newton_iters + 1) / (2 * max_newton_iters + param.iters);
+      // reset the failure count
+      failure_count = 0;
+
+      for (int eqIdx = 0; eqIdx < sys.neqs; ++eqIdx) {
+	update(eqIdx) = y_new(eqIdx) - y_predict(eqIdx);
+      }
+
       error_norm = 0;
       for (int eqIdx = 0; eqIdx < sys.neqs; ++eqIdx) {
         scale(eqIdx) = atol + rtol * Kokkos::abs(y_new(eqIdx));
@@ -399,6 +446,7 @@ KOKKOS_FUNCTION void BDFStep(ode_type& ode, scalar_type& t, scalar_type& dt, sca
       if (error_norm > 1) {
         scalar_type factor = Kokkos::max(min_factor, safety * Kokkos::pow(error_norm, -1.0 / (order + 1)));
         dt                 = factor * dt;
+	compute_jac = true;
         update_D(order, factor, coeffs, tempD, D);
         num_equal_steps = 0;
       } else {
@@ -467,6 +515,10 @@ KOKKOS_FUNCTION void BDFStep(ode_type& ode, scalar_type& t, scalar_type& dt, sca
   order += delta_order;
   factor = Kokkos::fmin(10, safety * factor);
   dt *= factor;
+
+  // YVV: force to re-compute J but not dfdy, maybe we can re-use if dt doesn't
+  // change much as well and then only change if the order changed?
+  compute_jac = true;
 
   update_D(order, factor, coeffs, tempD, D);
   num_equal_steps = 0;

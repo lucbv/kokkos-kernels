@@ -183,7 +183,7 @@ struct BDF_Solve_wrapper {
         temp2(temp2_) {}
 
   KOKKOS_FUNCTION void operator()(const int) const {
-    KokkosODE::Experimental::BDFSolve(my_ode, t_start, t_end, dt, max_step, y0, y_new, temp, temp2);
+    KokkosODE::Experimental::BDFSolve(my_ode, t_start, t_end, dt, max_step, y0, y_new, temp, temp2, 1e-6, 1e-12, 100);
   }
 };
 
