@@ -155,11 +155,11 @@ struct BDF {
 /// \param y_new [out]: vector of solution at t_end
 /// \param temp [in]: vectors for temporary storage
 /// \param temp2 [in]: vectors for temporary storage
-template <class ode_type, class mat_type, class vec_type, class scalar_type>
+template <class ode_type, class mat_type, class vec_type, class scalar_type, class count_type>
 KOKKOS_FUNCTION void BDFSolve(const ode_type& ode, const scalar_type t_start, const scalar_type t_end,
                               const scalar_type initial_step, const scalar_type /* max_step */, const vec_type& y0,
                               const vec_type& y_new, mat_type& temp, mat_type& temp2, scalar_type atol,
-			      scalar_type rtol, int max_substeps) {
+			      scalar_type rtol, const count_type& max_substeps) {
   // YVV: BUG - for dynamic memory the temp2 buffer (used in the static pivoting)
   // needs to be explicitly initialized to zero, don't rely on the user to do
   // this. asking for kokkos view alloc w/o init is preferable as it avoids par
@@ -203,7 +203,7 @@ KOKKOS_FUNCTION void BDFSolve(const ode_type& ode, const scalar_type t_start, co
   int count = 0;
   bool compute_jac = true;
   bool compute_dfdy = true;
-  while (t < t_end && count < max_substeps) {
+  while (t < t_end && count < max_substeps(0)) {
     KokkosODE::Impl::BDFStep(ode, t, dt, t_end, order, num_equal_steps,
 			     max_newton_iters, atol, rtol, min_factor, y0,
                              y_new, rhs, update, temp, temp2, compute_jac,
@@ -215,6 +215,7 @@ KOKKOS_FUNCTION void BDFSolve(const ode_type& ode, const scalar_type t_start, co
     ++count;
   // YVV - TODO: return error codes or success?
   }
+  max_substeps(0) = count;
 }  // BDFSolve
 
 }  // namespace Experimental

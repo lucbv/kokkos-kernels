@@ -162,16 +162,17 @@ struct BDFSolve_wrapper {
   }
 };
 
-template <class ode_type, class mat_type, class vec_type, class scalar_type>
+template <class ode_type, class mat_type, class vec_type, class scalar_type, class count_type>
 struct BDF_Solve_wrapper {
   const ode_type my_ode;
   const scalar_type t_start, t_end, dt, max_step;
   const vec_type y0, y_new;
   const mat_type temp, temp2;
+  const count_type max_substeps;
 
   BDF_Solve_wrapper(const ode_type& my_ode_, const scalar_type& t_start_, const scalar_type& t_end_,
                     const scalar_type& dt_, const scalar_type& max_step_, const vec_type& y0_, const vec_type& y_new_,
-                    const mat_type& temp_, const mat_type& temp2_)
+                    const mat_type& temp_, const mat_type& temp2_, const count_type& max_substeps_)
       : my_ode(my_ode_),
         t_start(t_start_),
         t_end(t_end_),
@@ -180,10 +181,11 @@ struct BDF_Solve_wrapper {
         y0(y0_),
         y_new(y_new_),
         temp(temp_),
-        temp2(temp2_) {}
+        temp2(temp2_),
+        max_substeps(max_substeps_) {}
 
   KOKKOS_FUNCTION void operator()(const int) const {
-    KokkosODE::Experimental::BDFSolve(my_ode, t_start, t_end, dt, max_step, y0, y_new, temp, temp2, 1e-6, 1e-12, 100);
+    KokkosODE::Experimental::BDFSolve(my_ode, t_start, t_end, dt, max_step, y0, y_new, temp, temp2, 1e-6, 1e-12, max_substeps);
   }
 };
 
@@ -707,6 +709,8 @@ void test_BDF_adaptive_stiff() {
   const scalar_type t_start = KAT::zero(), t_end = 350 * KAT::one();
   scalar_type dt = KAT::zero();
   vec_type y0("initial conditions", mySys.neqs), y_new("solution", mySys.neqs);
+  Kokkos::View<int*, execution_space> max_substeps;
+  Kokkos::deep_copy(max_substeps, 1000);
 
   // Set initial conditions
   auto y0_h = Kokkos::create_mirror_view(y0);
@@ -718,7 +722,7 @@ void test_BDF_adaptive_stiff() {
   mat_type temp("buffer1", mySys.neqs, 23 + 2 * mySys.neqs + 4), temp2("buffer2", 6, 7);
 
   Kokkos::RangePolicy<execution_space> policy(0, 1);
-  BDF_Solve_wrapper bdf_wrapper(mySys, t_start, t_end, dt, (t_end - t_start) / 10, y0, y_new, temp, temp2);
+  BDF_Solve_wrapper bdf_wrapper(mySys, t_start, t_end, dt, (t_end - t_start) / 10, y0, y_new, temp, temp2, max_substeps);
 
   Kokkos::parallel_for(policy, bdf_wrapper);
 
