@@ -59,6 +59,52 @@ struct SerialSVDInternal {
     e2                 = (-b - sqrtDet) / (2 * a);
   }
 
+  template <typename value_type>
+  KOKKOS_INLINE_FUNCTION static void singular2x2(value_type a11, value_type a21, value_type a22,
+						 value_type& smin, value_type& smax) {
+    using KAT = Kokkos::ArithTraits<value_type>;
+
+    value_type min_diag = Kokkos::min(Kokkos::abs(a11), Kokkos::abs(a22));
+    value_type max_diag = Kokkos::max(Kokkos::abs(a11), Kokkos::abs(a22));
+    value_type aa21     = Kokkos::abs(a21);
+
+    if(min_diag == KAT::zero()) {
+      smin = KAT::zero();
+      if(max_diag == KAT::zero()) {
+	smax = aa21;
+      } else {
+	smax = Kokkos::max(max_diag, aa21)*Kokkos::sqrt(KAT::one() + (Kokkos::min(max_diag, aa21) / Kokkos::max(max_diag, aa21))
+							* (Kokkos::min(max_diag, aa21) / Kokkos::max(max_diag, aa21)));
+      }
+    } else {
+      if(aa21 < max_diag) {
+	value_type c, tmp1, tmp2, tmp3;
+	tmp1 = KAT::one() + min_diag / max_diag;
+	tmp2 = (max_diag - min_diag) / max_diag;
+	tmp3 = (aa21 / max_diag) * (aa21 / max_diag);
+	c    = 2 * Kokkos::sqrt(KAT::one() / (Kokkos::sqrt(tmp1*tmp1 + tmp3) + Kokkos::sqrt(tmp2*tmp2 + tmp3)));
+	smin = min_diag * c;
+	smax = max_diag / c;
+      } else {
+	value_type c, tmp3;
+	tmp3 = max_diag / aa21;
+	if(tmp3 == KAT::zero()) {
+	  smin = (max_diag + min_diag) / aa21;
+	  smax = aa21;
+	} else {
+	  value_type tmp1, tmp2;
+	  tmp1 = KAT::one() + min_diag / max_diag;
+	  tmp2 = (max_diag - min_diag) / max_diag;
+	  c = KAT::one() / (Kokkos::sqrt(KAT::one() + (tmp1 * tmp3)*(tmp1 * tmp3))
+			    + Kokkos::sqrt(KAT::one() + (tmp2 * tmp3)*(tmp2 * tmp3)));
+	  smin = (min_diag * c) * tmp3;
+	  smin += smin;
+	  smax = aa21 / (c + c);
+	}
+      }
+    }
+  }
+
   // B is a square submatrix on the diagonal.
   // Usub is a subset of columns of U
   // Vtsub is a subset of rows of Vt
