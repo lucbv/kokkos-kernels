@@ -1300,14 +1300,14 @@ crsMat_t read_kokkos_crst_matrix(const char *filename_) {
   bool isMatrixMarket =
       KokkosKernels::Impl::endswith(strfilename, ".mtx") || KokkosKernels::Impl::endswith(strfilename, ".mm");
   bool isHB = KokkosKernels::Impl::endswith(strfilename, ".rsa") || KokkosKernels::Impl::endswith(strfilename, ".hb");
-  typedef typename crsMat_t::StaticCrsGraphType graph_t;
-  typedef typename graph_t::row_map_type::non_const_type row_map_view_t;
-  typedef typename graph_t::entries_type::non_const_type cols_view_t;
-  typedef typename crsMat_t::values_type::non_const_type values_view_t;
+  using graph_t        = typename crsMat_t::StaticCrsGraphType;
+  using row_map_view_t = typename graph_t::row_map_type::non_const_type;
+  using cols_view_t    = typename graph_t::entries_type::non_const_type;
+  using values_view_t  = typename crsMat_t::values_type::non_const_type;
 
-  typedef typename row_map_view_t::value_type size_type;
-  typedef typename cols_view_t::value_type lno_t;
-  typedef typename values_view_t::value_type scalar_t;
+  using size_type = typename row_map_view_t::value_type;
+  using lno_t     = typename cols_view_t::value_type;
+  using scalar_t  = typename values_view_t::value_type;
 
   lno_t nr, nc, *adj;
   size_type *xadj, nnzA;

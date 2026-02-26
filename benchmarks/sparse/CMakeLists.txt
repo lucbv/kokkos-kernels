@@ -17,6 +17,8 @@ kokkoskernels_add_benchmark(sparse_spmv_benchmark SOURCES KokkosSparse_spmv_benc
 
 kokkoskernels_add_benchmark(sparse_spmv_bsr_benchmark SOURCES KokkosSparse_spmv_bsr_benchmark.cpp)
 
+kokkoskernels_add_benchmark(sparse_spmv_sell_benchmark SOURCES KokkosSparse_spmv_sell_benchmark.cpp)
+
 # hipcc 5.2 has an underlying clang that has the std::filesystem
 # in an experimental namespace and a different library
 if(Kokkos_CXX_COMPILER_ID STREQUAL HIPCC AND Kokkos_CXX_COMPILER_VERSION VERSION_LESS 6.3)
@@ -32,3 +34,4 @@ elseif(Kokkos_CXX_COMPILER_ID STREQUAL GNU AND Kokkos_CXX_COMPILER_VERSION VERSI
 elseif(Kokkos_CXX_COMPILER_ID STREQUAL Clang AND Kokkos_CXX_COMPILER_VERSION VERSION_LESS 9.0)
   target_link_libraries(KokkosKernels_sparse_spmv_bsr_benchmark PRIVATE -lc++fs)
 endif()
+
