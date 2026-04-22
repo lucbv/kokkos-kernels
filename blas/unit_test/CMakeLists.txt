@@ -9,13 +9,13 @@ kokkoskernels_include_directories(REQUIRED_DURING_INSTALLATION_TESTING ${CMAKE_C
 # Define unit-tests #
 #                   #
 #####################
+set(TEST_MAIN ${PACKAGE_SOURCE_DIR}/test_common/Test_Main.cpp ${PACKAGE_SOURCE_DIR}/blas/unit_test/Test_Blas1_swap.cpp)
 
 #####################
 #                   #
 # Add GPU backends  #
 #                   #
 #####################
-set(TEST_MAIN ${PACKAGE_SOURCE_DIR}/test_common/Test_Main.cpp)
 if(KOKKOS_ENABLE_CUDA)
   kokkoskernels_add_unit_test(
     blas_cuda
