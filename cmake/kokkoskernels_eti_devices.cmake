@@ -120,6 +120,13 @@ if(KOKKOSKERNELS_INST_EXECSPACE_OPENMP AND KOKKOSKERNELS_INST_MEMSPACE_HOSTSPACE
   endif()
 endif()
 
+# MI300A needs instantiation with HIPSpace as HostSpace since that is what mirror view will use.
+if(KOKKOSKERNELS_INST_EXECSPACE_OPENMP AND KOKKOS_ENABLE_HIP)
+  if("AMD_GFX942_APU" IN_LIST Kokkos_ARCH)
+    list(APPEND DEVICE_LIST "<OpenMP,HIPSpace>")
+  endif()
+endif()
+
 kokkoskernels_add_option("INST_EXECSPACE_THREADS" ${KOKKOSKERNELS_INST_EXECSPACE_THREADS_DEFAULT} BOOL
   "Whether to build kernels for the execution space Kokkos::Threads.  If explicit template instantiation (ETI) is enabled in Trilinos, disabling this when Kokkos_ENABLE_THREADS is enabled may increase build times. Default: ON if Kokkos is Threads-enabled, OFF otherwise.")
 
@@ -133,6 +140,13 @@ if(KOKKOSKERNELS_INST_EXECSPACE_THREADS AND KOKKOSKERNELS_INST_MEMSPACE_HOSTSPAC
   endif()
 endif()
 
+# MI300A needs instantiation with HIPSpace as HostSpace since that is what mirror view will use.
+if(KOKKOSKERNELS_INST_EXECSPACE_THREADS AND KOKKOS_ENABLE_HIP)
+  if("AMD_GFX942_APU" IN_LIST Kokkos_ARCH)
+    list(APPEND DEVICE_LIST "<Threads,HIPSpace>")
+  endif()
+endif()
+
 kokkoskernels_add_option("INST_EXECSPACE_SERIAL" ${KOKKOSKERNELS_INST_EXECSPACE_SERIAL_DEFAULT} BOOL
   "Whether to build kernels for the execution space Kokkos::Serial.  If explicit template instantiation (ETI) is enabled in Trilinos, disabling this when Kokkos_ENABLE_SERIAL is enabled may increase build times. Default: ON when Kokkos is Serial-enabled, OFF otherwise.")
 
@@ -143,12 +157,26 @@ if(KOKKOSKERNELS_INST_EXECSPACE_SERIAL AND KOKKOSKERNELS_INST_MEMSPACE_HOSTSPACE
   endif()
 endif()
 
+# MI300A needs instantiation with HIPSpace as HostSpace since that is what mirror view will use.
+if(KOKKOSKERNELS_INST_EXECSPACE_SERIAL AND KOKKOS_ENABLE_HIP)
+  if("AMD_GFX942_APU" IN_LIST Kokkos_ARCH)
+    list(APPEND DEVICE_LIST "<Serial,HIPSpace>")
+  endif()
+endif()
+
 set(EXECSPACE_CUDA_VALID_MEM_SPACES          CUDASPACE CUDAUVMSPACE)
 set(EXECSPACE_HIP_VALID_MEM_SPACES           HIPSPACE HIPMANAGEDSPACE)
 set(EXECSPACE_SYCL_VALID_MEM_SPACES          SYCLSPACE SYCLSHAREDSPACE)
 set(EXECSPACE_SERIAL_VALID_MEM_SPACES        HOSTSPACE)
 set(EXECSPACE_OPENMP_VALID_MEM_SPACES        HOSTSPACE)
 set(EXECSPACE_THREADS_VALID_MEM_SPACES       HOSTSPACE)
+if(KOKKOSKERNELS_INST_EXECSPACE_SERIAL AND KOKKOS_ENABLE_HIP)
+  if("AMD_GFX942_APU" IN_LIST Kokkos_ARCH)
+    set(EXECSPACE_SERIAL_VALID_MEM_SPACES      HOSTSPACE HIPSPACE)
+    set(EXECSPACE_OPENMP_VALID_MEM_SPACES      HOSTSPACE HIPSPACE)
+    set(EXECSPACE_THREADS_VALID_MEM_SPACES     HOSTSPACE HIPSPACE)
+  endif()
+endif()
 set(DEVICES)
 foreach(EXEC ${EXEC_SPACES})
   if(KOKKOSKERNELS_INST_${EXEC})
